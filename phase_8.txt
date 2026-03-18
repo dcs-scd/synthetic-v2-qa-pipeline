@@ -1,0 +1,863 @@
+Below is a Phase 8 implementation package in the same style as the rest of the system.
+
+It includes:
+
+- `qa_system_v2bis/synthetic_v2/gate1_embedding.py`
+- `qa_system_v2bis/synthetic_v2/gate3_dedup.py`
+- `qa_system_v2bis/synthetic_v2/telemetry.py`
+- `qa_system_v2bis/synthetic_v2/run_synthetic_v2.py`
+
+This gives you a complete end-to-end orchestration layer for:
+
+- loading routed seeds
+- building prompts
+- calling an LLM client
+- running Gate 1
+- running Gate 2
+- running Gate 3
+- writing accepted/rejected records
+- logging telemetry
+
+I’ve made two practical choices:
+
+1. **Gate 1 and LLM are adapter-based** so you can plug in your existing embedding and rotating-client infrastructure.
+2. The CLI includes **smoke-test modes** so you can test the pipeline before wiring production adapters.
+
+---
+
+# 1. `qa_system_v2bis/synthetic_v2/gate1_embedding.py`
+
+```python
+from typing import Dict, Any, Optional
+
+
+class AlwaysPassEmbeddingIndex:
+    """
+    Smoke-test adapter.
+    Always passes Gate 1.
+    """
+
+    def threshold_for_class(self, class_id: int) -> float:
+        return 0.0
+
+    def embed(self, text: str):
+        return None
+
+    def search_best(self, vec, class_id: Optional[int] = None) -> Dict[str, Any]:
+        return {
+            "class_id": class_id,
+            "sim": 1.0,
+            "margin": 1.0
+        }
+
+
+def run_gate1_embedding(
+    question: str,
+    class_id: int,
+    embedding_index
+) -> Dict[str, Any]:
+    """
+    Production expectation for embedding_index:
+      - embed(text) -> vector
+      - search_best(vec, class_id=None) -> {
+            "class_id": int,
+            "sim": float,
+            "margin": float
+        }
+      - threshold_for_class(class_id) -> float
+
+    This wrapper keeps Gate 1 logic separate from the underlying embedding stack.
+    """
+    try:
+        vec = embedding_index.embed(question)
+        best = embedding_index.search_best(vec, class_id=class_id)
+        threshold = embedding_index.threshold_for_class(class_id)
+    except Exception as e:
+        return {
+            "ok": False,
+            "reason": "GATE1_BACKEND_ERROR",
+            "details": {"error": str(e)}
+        }
+
+    best_class = best.get("class_id")
+    sim = float(best.get("sim", 0.0))
+    margin = float(best.get("margin", 0.0))
+
+    if best_class is not None and best_class != class_id:
+        return {
+            "ok": False,
+            "reason": "WRONG_CLASS_NEIGHBORHOOD",
+            "details": {
+                "expected_class_id": class_id,
+                "best_class_id": best_class,
+                "best_sim": sim,
+                "margin": margin,
+                "threshold": threshold
+            }
+        }
+
+    if sim < threshold:
+        return {
+            "ok": False,
+            "reason": "LOW_EMBED_SIM",
+            "details": {
+                "best_sim": sim,
+                "margin": margin,
+                "threshold": threshold
+            }
+        }
+
+    if margin < 0.01:
+        return {
+            "ok": False,
+            "reason": "LOW_CLASS_MARGIN",
+            "details": {
+                "best_sim": sim,
+                "margin": margin,
+                "threshold": threshold
+            }
+        }
+
+    return {
+        "ok": True,
+        "reason": None,
+        "details": {
+            "best_sim": sim,
+            "margin": margin,
+            "threshold": threshold,
+            "best_class_id": best_class
+        }
+    }
+```
+
+---
+
+# 2. `qa_system_v2bis/synthetic_v2/gate3_dedup.py`
+
+```python
+import hashlib
+import re
+from typing import Dict, Any, Optional, List
+
+
+def normalize_text(text: str) -> str:
+    text = (text or "").strip().lower()
+    text = re.sub(r"\s+", " ", text)
+    return text
+
+
+def qa_hash(question: str, answer: str) -> str:
+    payload = normalize_text(question) + "\n---\n" + normalize_text(answer)
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+
+def q_hash(question: str) -> str:
+    payload = normalize_text(question)
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+
+class NoopQuestionSimilarityBackend:
+    """
+    Smoke-test backend: no near-dup detection.
+    """
+    def max_similarity(self, question: str) -> float:
+        return 0.0
+
+    def add_question(self, question: str) -> None:
+        return None
+
+
+class InMemoryDedupIndex:
+    """
+    Exact dedup:
+      - QA hash
+      - question-only hash
+
+    Optional near-dup:
+      - similarity_backend.max_similarity(question) -> float
+      - similarity_backend.add_question(question)
+    """
+
+    def __init__(self, similarity_backend: Optional[Any] = None):
+        self.qa_hashes = set()
+        self.q_hashes = set()
+        self.similarity_backend = similarity_backend or NoopQuestionSimilarityBackend()
+
+    def has_qa_hash(self, h: str) -> bool:
+        return h in self.qa_hashes
+
+    def has_q_hash(self, h: str) -> bool:
+        return h in self.q_hashes
+
+    def max_question_similarity(self, question: str) -> float:
+        return float(self.similarity_backend.max_similarity(question))
+
+    def add(self, accepted_record: Dict[str, Any]) -> None:
+        q = accepted_record.get("question", "")
+        a = accepted_record.get("answer", "")
+        self.qa_hashes.add(qa_hash(q, a))
+        self.q_hashes.add(q_hash(q))
+        self.similarity_backend.add_question(q)
+
+    @classmethod
+    def from_existing_rows(cls, rows: List[Dict[str, Any]], similarity_backend: Optional[Any] = None):
+        idx = cls(similarity_backend=similarity_backend)
+        for row in rows:
+            idx.add(row)
+        return idx
+
+
+def run_gate3_dedup(
+    question: str,
+    answer: str,
+    dedup_index: InMemoryDedupIndex,
+    near_dup_threshold: float = 0.985
+) -> Dict[str, Any]:
+    hqa = qa_hash(question, answer)
+    hq = q_hash(question)
+
+    if dedup_index.has_qa_hash(hqa):
+        return {
+            "ok": False,
+            "reason": "EXACT_QA_DUP",
+            "details": {
+                "qa_hash": hqa
+            }
+        }
+
+    if dedup_index.has_q_hash(hq):
+        return {
+            "ok": False,
+            "reason": "QUESTION_TEMPLATE_DUP",
+            "details": {
+                "q_hash": hq
+            }
+        }
+
+    sim = dedup_index.max_question_similarity(question)
+    if sim >= near_dup_threshold:
+        return {
+            "ok": False,
+            "reason": "NEAR_DUP_QUESTION",
+            "details": {
+                "sim": sim,
+                "threshold": near_dup_threshold
+            }
+        }
+
+    return {
+        "ok": True,
+        "reason": None,
+        "details": {
+            "qa_hash": hqa,
+            "q_hash": hq,
+            "near_dup_sim": sim,
+            "threshold": near_dup_threshold
+        }
+    }
+```
+
+---
+
+# 3. `qa_system_v2bis/synthetic_v2/telemetry.py`
+
+```python
+from collections import Counter, defaultdict
+from typing import Dict, Any, List
+
+from .io_utils import append_jsonl, save_json
+from .text_utils import normalize_model_name
+
+
+def make_event(
+    seed_row: Dict[str, Any],
+    status: str,
+    reason: str,
+    details: Dict[str, Any]
+) -> Dict[str, Any]:
+    return {
+        "seed_id": seed_row.get("seed_id"),
+        "model_name": normalize_model_name(seed_row.get("model_name")),
+        "class_id": seed_row.get("class_id"),
+        "level": seed_row.get("level"),
+        "tier": seed_row.get("tier"),
+        "route_mode": seed_row.get("route_mode"),
+        "extension_family": seed_row.get("extension_family"),
+        "status": status,
+        "reason": reason,
+        "details": details or {}
+    }
+
+
+def record_attempt(telemetry_path: str, event: Dict[str, Any]) -> None:
+    append_jsonl(telemetry_path, event)
+
+
+def summarize_telemetry(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    by_status = Counter()
+    by_reason = Counter()
+    by_model = Counter()
+    by_mode = Counter()
+    by_family = Counter()
+    by_model_mode = defaultdict(Counter)
+    by_model_reason = defaultdict(Counter)
+
+    for ev in events:
+        status = ev.get("status")
+        reason = ev.get("reason")
+        model = normalize_model_name(ev.get("model_name"))
+        mode = ev.get("route_mode")
+        family = ev.get("extension_family")
+
+        if status:
+            by_status[status] += 1
+        if reason:
+            by_reason[reason] += 1
+        if model:
+            by_model[model] += 1
+            if mode:
+                by_model_mode[model][mode] += 1
+            if reason:
+                by_model_reason[model][reason] += 1
+        if mode:
+            by_mode[mode] += 1
+        if family:
+            by_family[family] += 1
+
+    return {
+        "total_events": len(events),
+        "by_status": dict(by_status),
+        "by_reason": dict(by_reason),
+        "by_model": dict(by_model),
+        "by_mode": dict(by_mode),
+        "by_family": dict(by_family),
+        "by_model_mode": {k: dict(v) for k, v in by_model_mode.items()},
+        "by_model_reason": {k: dict(v) for k, v in by_model_reason.items()},
+    }
+
+
+def save_telemetry_summary(events: List[Dict[str, Any]], out_path: str) -> None:
+    summary = summarize_telemetry(events)
+    save_json(summary, out_path)
+```
+
+---
+
+# 4. `qa_system_v2bis/synthetic_v2/run_synthetic_v2.py`
+
+```python
+import argparse
+import json
+from typing import Dict, Any, List, Optional
+
+from .io_utils import load_json, load_jsonl, append_jsonl, save_json
+from .prompt_builder import build_prompt, get_model_profile
+from .gate1_embedding import run_gate1_embedding, AlwaysPassEmbeddingIndex
+from .gate2_model_validation import validate_generated_row
+from .gate3_dedup import InMemoryDedupIndex, run_gate3_dedup
+from .telemetry import make_event, record_attempt, summarize_telemetry
+from .text_utils import normalize_model_name
+
+
+# -------------------------------------------------------------------
+# LLM client smoke-test adapters
+# -------------------------------------------------------------------
+
+class EchoSeedLLMClient:
+    """
+    Smoke-test LLM adapter.
+    Returns the seed's own Q/A as JSON.
+    Useful for pipeline testing without calling a real model.
+    """
+    def generate(self, prompt: str, seed_row: Dict[str, Any]) -> str:
+        q = seed_row.get("seed_q") or seed_row.get("question") or ""
+        a = seed_row.get("seed_a") or seed_row.get("answer") or ""
+        return json.dumps({"question": q, "answer": a}, ensure_ascii=False)
+
+
+class StaticJSONLLMClient:
+    """
+    Another smoke-test adapter.
+    Returns the same canned JSON object every time.
+    """
+    def __init__(self, question: str, answer: str):
+        self.obj = {"question": question, "answer": answer}
+
+    def generate(self, prompt: str, seed_row: Dict[str, Any]) -> str:
+        return json.dumps(self.obj, ensure_ascii=False)
+
+
+# -------------------------------------------------------------------
+# JSON parsing
+# -------------------------------------------------------------------
+
+def parse_llm_json(raw: str) -> Dict[str, Any]:
+    try:
+        obj = json.loads(raw)
+    except Exception as e:
+        return {"ok": False, "error": f"json_parse_error: {e}", "raw": raw[:1000]}
+
+    if not isinstance(obj, dict):
+        return {"ok": False, "error": "response_not_json_object", "raw": raw[:1000]}
+
+    if "skip" in obj:
+        return {"ok": False, "error": f"model_returned_skip:{obj.get('skip')}", "raw": raw[:1000]}
+
+    if "question" not in obj or "answer" not in obj:
+        return {"ok": False, "error": "missing_question_or_answer", "raw": raw[:1000]}
+
+    if not isinstance(obj["question"], str) or not isinstance(obj["answer"], str):
+        return {"ok": False, "error": "question_or_answer_not_string", "raw": raw[:1000]}
+
+    return {"ok": True, "data": obj}
+
+
+# -------------------------------------------------------------------
+# Result shaping
+# -------------------------------------------------------------------
+
+def accept_record(record: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "status": "accepted",
+        "record": record
+    }
+
+
+def reject_record(seed_row: Dict[str, Any], reason: str, details: Dict[str, Any]) -> Dict[str, Any]:
+    rec = {
+        "seed_id": seed_row.get("seed_id"),
+        "model_name": seed_row.get("model_name"),
+        "class_id": seed_row.get("class_id"),
+        "level": seed_row.get("level"),
+        "tier": seed_row.get("tier"),
+        "route_mode": seed_row.get("route_mode"),
+        "extension_family": seed_row.get("extension_family"),
+        "reason": reason,
+        "details": details or {}
+    }
+    return {
+        "status": "rejected",
+        "record": rec
+    }
+
+
+# -------------------------------------------------------------------
+# Seed processing
+# -------------------------------------------------------------------
+
+def process_seed(
+    seed_row: Dict[str, Any],
+    model_profiles: Dict[str, Any],
+    llm_client,
+    embedding_index,
+    dedup_index: InMemoryDedupIndex,
+    near_dup_threshold: float = 0.985
+) -> Dict[str, Any]:
+    route_mode = seed_row.get("route_mode")
+    if route_mode == "skip":
+        return reject_record(seed_row, "SEED_ROUTED_SKIP", seed_row.get("route_diagnostics", {}))
+
+    model_name = normalize_model_name(seed_row.get("model_name"))
+    profile = get_model_profile(model_profiles, model_name)
+    if not profile:
+        return reject_record(seed_row, "MISSING_MODEL_PROFILE", {"model_name": model_name})
+
+    try:
+        prompt = build_prompt(seed_row, profile)
+    except Exception as e:
+        return reject_record(seed_row, "PROMPT_BUILD_ERROR", {"error": str(e)})
+
+    # LLM call
+    try:
+        raw = llm_client.generate(prompt, seed_row=seed_row)
+    except Exception as e:
+        return reject_record(seed_row, "LLM_CALL_ERROR", {"error": str(e)})
+
+    parsed = parse_llm_json(raw)
+    if not parsed["ok"]:
+        return reject_record(seed_row, "BAD_JSON", parsed)
+
+    qa = parsed["data"]
+
+    # Gate 1
+    gate1 = run_gate1_embedding(
+        question=qa["question"],
+        class_id=seed_row.get("class_id"),
+        embedding_index=embedding_index
+    )
+    if not gate1["ok"]:
+        return reject_record(seed_row, gate1["reason"], gate1["details"])
+
+    # Gate 2
+    gate2 = validate_generated_row(
+        generated_row=qa,
+        routed_seed_row=seed_row,
+        model_profiles=model_profiles
+    )
+    if not gate2["ok"]:
+        return reject_record(seed_row, gate2["reason"], gate2["details"])
+
+    # Gate 3
+    gate3 = run_gate3_dedup(
+        question=qa["question"],
+        answer=qa["answer"],
+        dedup_index=dedup_index,
+        near_dup_threshold=near_dup_threshold
+    )
+    if not gate3["ok"]:
+        return reject_record(seed_row, gate3["reason"], gate3["details"])
+
+    accepted = {
+        "seed_id": seed_row.get("seed_id"),
+        "model_name": model_name,
+        "class_id": seed_row.get("class_id"),
+        "level": seed_row.get("level"),
+        "tier": seed_row.get("tier"),
+        "route_mode": seed_row.get("route_mode"),
+        "extension_family": seed_row.get("extension_family"),
+        "question": qa["question"],
+        "answer": qa["answer"],
+        "prompt_meta": {
+            "route_mode": seed_row.get("route_mode"),
+            "extension_family": seed_row.get("extension_family")
+        },
+        "gate1": gate1,
+        "gate2": gate2,
+        "gate3": gate3,
+    }
+
+    dedup_index.add(accepted)
+    return accept_record(accepted)
+
+
+# -------------------------------------------------------------------
+# Batch generation
+# -------------------------------------------------------------------
+
+def generate_synthetic(
+    routed_seeds: List[Dict[str, Any]],
+    model_profiles: Dict[str, Any],
+    llm_client,
+    embedding_index,
+    dedup_index: InMemoryDedupIndex,
+    accepted_path: str,
+    rejected_path: str,
+    telemetry_path: Optional[str] = None,
+    near_dup_threshold: float = 0.985,
+    limit: Optional[int] = None
+) -> Dict[str, Any]:
+    events = []
+
+    rows = routed_seeds[:limit] if limit is not None else routed_seeds
+
+    for seed_row in rows:
+        result = process_seed(
+            seed_row=seed_row,
+            model_profiles=model_profiles,
+            llm_client=llm_client,
+            embedding_index=embedding_index,
+            dedup_index=dedup_index,
+            near_dup_threshold=near_dup_threshold
+        )
+
+        if result["status"] == "accepted":
+            append_jsonl(accepted_path, result["record"])
+            event = make_event(
+                seed_row,
+                status="accepted",
+                reason="ACCEPTED",
+                details={
+                    "gate1": result["record"]["gate1"],
+                    "gate2": result["record"]["gate2"],
+                    "gate3": result["record"]["gate3"],
+                }
+            )
+        else:
+            append_jsonl(rejected_path, result["record"])
+            event = make_event(
+                seed_row,
+                status="rejected",
+                reason=result["record"]["reason"],
+                details=result["record"].get("details", {})
+            )
+
+        events.append(event)
+        if telemetry_path:
+            record_attempt(telemetry_path, event)
+
+    return summarize_telemetry(events)
+
+
+# -------------------------------------------------------------------
+# CLI helpers
+# -------------------------------------------------------------------
+
+def build_llm_client(mode: str):
+    """
+    Built-in smoke-test modes only.
+    Production should inject a real LLM adapter programmatically.
+    """
+    if mode == "echo_seed":
+        return EchoSeedLLMClient()
+    elif mode == "static_demo":
+        return StaticJSONLLMClient(
+            question="How does the model work?",
+            answer="This is a static smoke-test answer."
+        )
+    else:
+        raise ValueError(
+            f"Unknown --llm-mode={mode!r}. "
+            "Built-in options: echo_seed, static_demo. "
+            "For production, use the library API and pass a real client object."
+        )
+
+
+def build_embedding_index(mode: str):
+    """
+    Built-in smoke-test modes only.
+    Production should inject a real embedding adapter programmatically.
+    """
+    if mode == "always_pass":
+        return AlwaysPassEmbeddingIndex()
+    else:
+        raise ValueError(
+            f"Unknown --embedding-mode={mode!r}. "
+            "Built-in option: always_pass. "
+            "For production, use the library API and pass a real embedding adapter."
+        )
+
+
+# -------------------------------------------------------------------
+# CLI entry point
+# -------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--routed-seeds", required=True, help="Path to seed_routes.jsonl")
+    parser.add_argument("--profiles", required=True, help="Path to model_profiles_merged.json")
+    parser.add_argument("--accepted", required=True, help="Output accepted.jsonl")
+    parser.add_argument("--rejected", required=True, help="Output rejected.jsonl")
+    parser.add_argument("--telemetry", default=None, help="Optional telemetry.jsonl path")
+    parser.add_argument("--summary-out", required=True, help="Output JSON summary path")
+    parser.add_argument("--limit", type=int, default=None, help="Optional max number of seeds to process")
+    parser.add_argument("--near-dup-threshold", type=float, default=0.985)
+
+    # smoke-test adapters
+    parser.add_argument("--llm-mode", default="echo_seed", help="echo_seed | static_demo")
+    parser.add_argument("--embedding-mode", default="always_pass", help="always_pass")
+    args = parser.parse_args()
+
+    routed_seeds = load_jsonl(args.routed_seeds)
+    model_profiles = load_json(args.profiles)
+
+    llm_client = build_llm_client(args.llm_mode)
+    embedding_index = build_embedding_index(args.embedding_mode)
+    dedup_index = InMemoryDedupIndex()
+
+    summary = generate_synthetic(
+        routed_seeds=routed_seeds,
+        model_profiles=model_profiles,
+        llm_client=llm_client,
+        embedding_index=embedding_index,
+        dedup_index=dedup_index,
+        accepted_path=args.accepted,
+        rejected_path=args.rejected,
+        telemetry_path=args.telemetry,
+        near_dup_threshold=args.near_dup_threshold,
+        limit=args.limit
+    )
+
+    save_json(summary, args.summary_out)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+---
+
+# 5. What this Phase 8 code gives you
+
+This is your first runnable end-to-end `synthetic_v2` generation loop.
+
+It supports:
+
+## Inputs
+- `seed_routes.jsonl`
+- `model_profiles_merged.json`
+
+## Pipeline stages
+1. skip seeds already routed to `skip`
+2. build prompt from:
+   - route mode
+   - extension family
+   - model profile
+3. call LLM
+4. parse returned JSON
+5. Gate 1
+6. Gate 2
+7. Gate 3
+8. write accepted/rejected rows
+9. log telemetry
+
+## Outputs
+- `accepted.jsonl`
+- `rejected.jsonl`
+- optional `telemetry.jsonl`
+- `summary.json`
+
+---
+
+# 6. Smoke-test usage
+
+This lets you test the whole pipeline without real LLM or embedding infra.
+
+## Example command
+
+```bash
+python -m qa_system_v2bis.synthetic_v2.run_synthetic_v2 \
+  --routed-seeds artifacts/routing/seed_routes.jsonl \
+  --profiles artifacts/model_profiles/model_profiles_merged.json \
+  --accepted artifacts/synthetic/accepted.jsonl \
+  --rejected artifacts/synthetic/rejected.jsonl \
+  --telemetry artifacts/synthetic/telemetry.jsonl \
+  --summary-out artifacts/synthetic/summary.json \
+  --limit 100 \
+  --llm-mode echo_seed \
+  --embedding-mode always_pass
+```
+
+This uses:
+- `echo_seed` as a fake LLM
+- `always_pass` for Gate 1
+
+So you can immediately test:
+- prompt building
+- JSON parsing
+- Gate 2
+- Gate 3
+- accepted/rejected writing
+- telemetry
+
+---
+
+# 7. Production integration points
+
+The smoke-test adapters are useful for validation, but production should replace two things:
+
+## Replace `llm_client`
+Expected interface:
+
+```python
+class RealLLMClient:
+    def generate(self, prompt: str, seed_row: dict) -> str:
+        ...
+```
+
+This should call your actual model backend and return raw JSON text.
+
+You can wrap your existing:
+- `qa_system_v2bis/llm/rotating_clients.py`
+
+inside an adapter with that method.
+
+---
+
+## Replace `embedding_index`
+Expected interface:
+
+```python
+class RealEmbeddingIndex:
+    def embed(self, text: str):
+        ...
+
+    def search_best(self, vec, class_id=None) -> dict:
+        return {
+            "class_id": ...,
+            "sim": ...,
+            "margin": ...
+        }
+
+    def threshold_for_class(self, class_id: int) -> float:
+        ...
+```
+
+You can wrap your current:
+- FAISS index
+- precomputed embeddings
+- class-threshold logic
+
+inside that adapter.
+
+---
+
+## Optional: replace dedup similarity backend
+Current `InMemoryDedupIndex` does:
+- exact QA hash
+- question hash
+- optional near-dup via backend
+
+For production, you can attach a FAISS-backed similarity backend.
+
+Expected interface:
+
+```python
+class QuestionSimilarityBackend:
+    def max_similarity(self, question: str) -> float:
+        ...
+    def add_question(self, question: str) -> None:
+        ...
+```
+
+---
+
+# 8. Recommended immediate next step
+
+At this point, you have a full v2 architecture implemented through Phase 8.
+
+The next practical step is:
+
+## Step 1
+Run the smoke test:
+- `echo_seed`
+- `always_pass`
+- 100 routed seeds
+
+Check:
+- accepted/rejected balance
+- Gate 2 behavior
+- routing metadata
+- telemetry summaries
+
+## Step 2
+Wire production adapters:
+- real LLM client
+- real embedding index
+- optional near-dup similarity backend
+
+## Step 3
+Run a small real pilot:
+- 500–1,000 generations
+
+Measure:
+- acceptance rate
+- top rejection reasons
+- route-mode distribution
+- extension-family distribution
+
+---
+
+# 9. What you have now
+
+With Phases 0–8 implemented, your new pipeline has:
+
+- normalized inputs
+- source-derived core profiles
+- audit-driven extension curation
+- routed seed modes
+- family-aware prompts
+- mode-aware validation
+- end-to-end orchestration
+
+That is enough to start testing the system seriously.
+

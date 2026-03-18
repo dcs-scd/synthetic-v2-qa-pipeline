@@ -1,0 +1,942 @@
+Below is a concrete Phase 0 + Phase 1 implementation package you can drop in.
+
+It includes:
+
+- `docs/synthetic_v2_design.md`
+- `qa_system_v2bis/synthetic_v2/schemas.py`
+- `qa_system_v2bis/synthetic_v2/io_utils.py`
+- `qa_system_v2bis/synthetic_v2/text_utils.py`
+- `qa_system_v2bis/synthetic_v2/prepare_inputs.py`
+
+This covers:
+
+- policy freeze / schemas / rejection codes
+- input normalization
+- seed-to-corpus join
+- unified `all_records.jsonl`
+- consistency reporting
+
+---
+
+# 1. `docs/synthetic_v2_design.md`
+
+```md
+# Synthetic V2 Design
+
+## Purpose
+
+Synthetic V2 generates NetLogo Q&A examples in two valid regimes:
+
+1. **Core/model-faithful**
+2. **Model-anchored extension**
+
+The old source-only invariant system incorrectly rejected many coherent extension examples.
+This design treats those as first-class outputs when properly framed.
+
+---
+
+## Routing outcomes
+
+Each seed is routed to one of:
+
+- `core_paraphrase`
+- `core_repair`
+- `anchored_extension`
+- `skip`
+
+### `core_paraphrase`
+Use when the seed is already faithful to the original model and only needs paraphrasing.
+
+### `core_repair`
+Use when the seed is mostly faithful to the original model but contains unsupported specifics
+that should be rewritten into source-grounded form.
+
+### `anchored_extension`
+Use when the seed proposes a coherent extension to the original model, such as:
+- extra states
+- network layers
+- media layers
+- long-range links
+- scaling optimizations
+- added analytical metrics
+
+Extension content is valid only if:
+- it remains anchored to the original model
+- it is framed as an addition/modification
+- it does not falsely claim to exist in the original source code
+
+### `skip`
+Use when the seed is incoherent, too far from the model, or not worth repairing.
+
+---
+
+## Validation regimes
+
+### Core validation
+Allowed:
+- source-derived model identifiers
+- standard NetLogo/global terms
+
+Forbidden:
+- extension identifiers
+- unsupported model-specific mechanisms
+
+### Extension validation
+Allowed:
+- source-derived model identifiers
+- approved extension-family identifiers
+- standard NetLogo/global terms
+
+Required:
+- explicit framing as an extension/addition
+- explicit anchoring to the original model
+
+Forbidden:
+- extension identifiers falsely presented as original source code
+- unapproved cross-family extension identifiers
+- off-theme unrelated drift
+
+---
+
+## Data artifacts
+
+### `core_profiles.json`
+Source-derived core identifiers per model.
+
+### `extension_profiles.json`
+Approved extension families per model.
+
+### `model_profiles_merged.json`
+Merged file used by routing, prompting, and validation.
+
+### `seeds_with_text.jsonl`
+Seed records with `seed_q` and `seed_a` populated.
+
+### `all_records.jsonl`
+Unified normalized records from:
+- corpus
+- seeds
+- optionally accepted synthetic
+- optionally rejected synthetic
+
+### `input_consistency_report.json`
+Counts and issues found during normalization.
+
+---
+
+## Rejection codes
+
+### Input / normalization
+- `MISSING_MODEL_NAME`
+- `MISSING_QUESTION`
+- `MISSING_ANSWER`
+- `SEED_JOIN_MISS`
+- `DUPLICATE_RECORD_ID`
+
+### Routing / generation / validation
+- `SEED_ROUTED_SKIP`
+- `BAD_JSON`
+- `LOW_EMBED_SIM`
+- `LOW_CLASS_MARGIN`
+- `WRONG_CLASS_NEIGHBORHOOD`
+- `UNKNOWN_CORE_IDENTIFIER`
+- `UNAPPROVED_EXTENSION_IDENTIFIER`
+- `CROSS_FAMILY_EXTENSION_IDENTIFIER`
+- `EXTENSION_REQUIRES_FRAMING`
+- `BASE_MODEL_MISREPRESENTATION`
+- `INSUFFICIENT_CORE_ANCHOR`
+- `DISALLOWED_THEME`
+- `EXACT_QA_DUP`
+- `QUESTION_TEMPLATE_DUP`
+- `NEAR_DUP_QUESTION`
+
+---
+
+## Normalized record format
+
+All normalized records should contain:
+
+- `record_id`
+- `source`
+- `source_id`
+- `model_name`
+- `question`
+- `answer`
+- optional metadata such as:
+  - `class_id`
+  - `level`
+  - `tier`
+  - `seed_type`
+  - `seed_id`
+  - `global_id`
+  - `tags`
+
+---
+
+## Notes
+
+- Model names are normalized to lowercase.
+- Seeds should carry `seed_q` and `seed_a` directly after normalization.
+- If a seed lacks text, join it to the corpus using `seed_id -> corpus.id`.
+- The normalization layer should not silently drop malformed rows; it should report them.
+```
+
+---
+
+# 2. `qa_system_v2bis/synthetic_v2/schemas.py`
+
+```python
+from typing import TypedDict, Optional, List, Dict, Any, Literal
+
+RouteMode = Literal[
+    "core_paraphrase",
+    "core_repair",
+    "anchored_extension",
+    "skip"
+]
+
+SourceType = Literal[
+    "seed",
+    "corpus",
+    "accepted_synth",
+    "rejected_synth"
+]
+
+
+class SeedRecord(TypedDict, total=False):
+    seed_id: str
+    class_id: int
+    model_name: str
+    level: str
+    tier: str
+    seed_type: str
+    seed_q: str
+    seed_a: str
+
+
+class NormalizedRecord(TypedDict, total=False):
+    record_id: str
+    source: SourceType
+    source_id: str
+    model_name: str
+    question: str
+    answer: str
+
+    # optional metadata
+    seed_id: str
+    class_id: int
+    level: str
+    tier: str
+    seed_type: str
+    global_id: str
+    tags: List[str]
+    raw_ref: Dict[str, Any]
+
+
+class RouteResult(TypedDict, total=False):
+    route: RouteMode
+    family: Optional[str]
+    core_hits: List[str]
+    best_family_score: int
+    family_scores: Dict[str, int]
+    family_matches: Dict[str, Any]
+    extension_intent: bool
+    unknown_terms_sample: List[str]
+
+
+class CoreProfile(TypedDict, total=False):
+    procedures: List[str]
+    variables: List[str]
+    breeds: List[str]
+    widgets: List[str]
+    model_summary: str
+
+
+class ExtensionFamily(TypedDict, total=False):
+    name: str
+    concepts: List[str]
+    identifiers: List[str]
+    rules: List[str]
+
+
+class ExtensionProfile(TypedDict, total=False):
+    families: List[ExtensionFamily]
+    general_rules: List[str]
+    framing_cues: List[str]
+    disallowed_unanchored_themes: List[str]
+
+
+class ModelProfile(TypedDict, total=False):
+    model_name: str
+    core: CoreProfile
+    extensions: ExtensionProfile
+
+
+class AcceptedRecord(TypedDict, total=False):
+    seed_id: str
+    model_name: str
+    class_id: int
+    level: str
+    tier: str
+    route_mode: RouteMode
+    extension_family: Optional[str]
+    question: str
+    answer: str
+    gate1: Dict[str, Any]
+    gate2: Dict[str, Any]
+    gate3: Dict[str, Any]
+
+
+class RejectedRecord(TypedDict, total=False):
+    seed_id: str
+    model_name: str
+    class_id: int
+    level: str
+    tier: str
+    route_mode: Optional[RouteMode]
+    extension_family: Optional[str]
+    reason: str
+    details: Dict[str, Any]
+
+
+REJECTION_CODES = {
+    # normalization / input
+    "MISSING_MODEL_NAME",
+    "MISSING_QUESTION",
+    "MISSING_ANSWER",
+    "SEED_JOIN_MISS",
+    "DUPLICATE_RECORD_ID",
+
+    # generation / validation
+    "SEED_ROUTED_SKIP",
+    "BAD_JSON",
+    "LOW_EMBED_SIM",
+    "LOW_CLASS_MARGIN",
+    "WRONG_CLASS_NEIGHBORHOOD",
+    "UNKNOWN_CORE_IDENTIFIER",
+    "UNAPPROVED_EXTENSION_IDENTIFIER",
+    "CROSS_FAMILY_EXTENSION_IDENTIFIER",
+    "EXTENSION_REQUIRES_FRAMING",
+    "BASE_MODEL_MISREPRESENTATION",
+    "INSUFFICIENT_CORE_ANCHOR",
+    "DISALLOWED_THEME",
+    "EXACT_QA_DUP",
+    "QUESTION_TEMPLATE_DUP",
+    "NEAR_DUP_QUESTION",
+}
+```
+
+---
+
+# 3. `qa_system_v2bis/synthetic_v2/io_utils.py`
+
+```python
+import json
+from pathlib import Path
+from typing import Any, Dict, List
+
+
+def ensure_parent(path: str) -> None:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+
+
+def load_json(path: str) -> Any:
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_json(obj: Any, path: str) -> None:
+    ensure_parent(path)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, indent=2)
+
+
+def load_jsonl(path: str) -> List[Dict[str, Any]]:
+    rows = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line_num, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+    return rows
+
+
+def save_jsonl(rows: List[Dict[str, Any]], path: str) -> None:
+    ensure_parent(path)
+    with open(path, "w", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def append_jsonl(path: str, row: Dict[str, Any]) -> None:
+    ensure_parent(path)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+```
+
+---
+
+# 4. `qa_system_v2bis/synthetic_v2/text_utils.py`
+
+```python
+import re
+from typing import List, Optional
+
+
+MODEL_TAG_RE = re.compile(r"^model:(.+)$", re.IGNORECASE)
+LEVEL_TAG_RE = re.compile(r"^level:(.+)$", re.IGNORECASE)
+
+
+def norm_space(s: str) -> str:
+    return re.sub(r"\s+", " ", s.strip())
+
+
+def normalize_model_name(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    value = norm_space(str(value))
+    if not value:
+        return None
+    return value.lower()
+
+
+def extract_model_from_tags(tags: List[str]) -> Optional[str]:
+    for t in tags or []:
+        m = MODEL_TAG_RE.match(str(t).strip())
+        if m:
+            return normalize_model_name(m.group(1))
+    return None
+
+
+def extract_level_from_tags(tags: List[str]) -> Optional[str]:
+    for t in tags or []:
+        m = LEVEL_TAG_RE.match(str(t).strip())
+        if m:
+            return norm_space(m.group(1))
+    return None
+
+
+def safe_text(value) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        value = str(value)
+    value = value.strip()
+    return value if value else None
+
+
+def normalize_question(q: Optional[str]) -> Optional[str]:
+    q = safe_text(q)
+    if q is None:
+        return None
+    return q
+
+
+def normalize_answer(a: Optional[str]) -> Optional[str]:
+    a = safe_text(a)
+    if a is None:
+        return None
+    return a
+```
+
+---
+
+# 5. `qa_system_v2bis/synthetic_v2/prepare_inputs.py`
+
+This is the main Phase 1 script.
+
+It:
+
+- loads `synth_plan.json`
+- loads `corpus_combined.jsonl`
+- joins seeds to corpus by `seed_id -> corpus.id` when needed
+- outputs:
+  - `seeds_with_text.jsonl`
+  - `all_records.jsonl`
+  - `input_consistency_report.json`
+
+```python
+import argparse
+from collections import Counter, defaultdict
+from typing import Any, Dict, List, Optional, Tuple
+
+from .io_utils import load_json, load_jsonl, save_json, save_jsonl
+from .text_utils import (
+    normalize_model_name,
+    extract_model_from_tags,
+    extract_level_from_tags,
+    normalize_question,
+    normalize_answer,
+    safe_text,
+)
+
+
+def first_message_by_role(messages: List[Dict[str, Any]], role: str) -> Optional[str]:
+    for msg in messages or []:
+        if msg.get("role") == role:
+            content = safe_text(msg.get("content"))
+            if content:
+                return content
+    return None
+
+
+def extract_question_answer(row: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Priority:
+    1. explicit question / answer fields
+    2. messages[user] / messages[assistant]
+    """
+    q = normalize_question(row.get("question"))
+    a = normalize_answer(row.get("answer"))
+
+    if q and a:
+        return q, a
+
+    messages = row.get("messages") or []
+    if not q:
+        q = normalize_question(first_message_by_role(messages, "user"))
+    if not a:
+        a = normalize_answer(first_message_by_role(messages, "assistant"))
+
+    return q, a
+
+
+def extract_model_name(row: Dict[str, Any]) -> Optional[str]:
+    for key in ["model_name", "model"]:
+        if key in row:
+            m = normalize_model_name(row.get(key))
+            if m:
+                return m
+
+    tags = row.get("tags") or []
+    return extract_model_from_tags(tags)
+
+
+def extract_level(row: Dict[str, Any]) -> Optional[str]:
+    if row.get("level"):
+        return safe_text(row.get("level"))
+    return extract_level_from_tags(row.get("tags") or [])
+
+
+def build_corpus_index(corpus_rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    idx = {}
+    for row in corpus_rows:
+        rid = safe_text(row.get("id"))
+        if rid:
+            idx[rid] = row
+    return idx
+
+
+def normalize_corpus_row(row: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+    issues = []
+
+    source_id = safe_text(row.get("id")) or safe_text(row.get("global_id")) or ""
+    model_name = extract_model_name(row)
+    question, answer = extract_question_answer(row)
+
+    if not model_name:
+        issues.append("MISSING_MODEL_NAME")
+    if not question:
+        issues.append("MISSING_QUESTION")
+    if not answer:
+        issues.append("MISSING_ANSWER")
+
+    if issues:
+        return None, issues
+
+    norm_row = {
+        "record_id": f"corpus::{source_id}" if source_id else None,
+        "source": "corpus",
+        "source_id": source_id,
+        "model_name": model_name,
+        "question": question,
+        "answer": answer,
+        "level": extract_level(row),
+        "global_id": safe_text(row.get("global_id")),
+        "tags": row.get("tags") or [],
+        "raw_ref": {
+            "id": row.get("id"),
+            "idx": row.get("idx"),
+        },
+    }
+    return norm_row, issues
+
+
+def normalize_seed_row(seed: Dict[str, Any], corpus_index: Dict[str, Dict[str, Any]]) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+    """
+    Seed priority:
+    1. use seed_q / seed_a if already present
+    2. otherwise join by seed_id -> corpus.id
+    """
+    issues = []
+
+    seed_id = safe_text(seed.get("seed_id"))
+    model_name = normalize_model_name(seed.get("model_name"))
+    level = safe_text(seed.get("level"))
+    tier = safe_text(seed.get("tier"))
+    seed_type = safe_text(seed.get("seed_type"))
+
+    seed_q = normalize_question(seed.get("seed_q"))
+    seed_a = normalize_answer(seed.get("seed_a"))
+
+    join_source = None
+    if not seed_q or not seed_a:
+        if seed_id and seed_id in corpus_index:
+            joined = corpus_index[seed_id]
+            jq, ja = extract_question_answer(joined)
+            seed_q = seed_q or jq
+            seed_a = seed_a or ja
+            join_source = seed_id
+        else:
+            issues.append("SEED_JOIN_MISS")
+
+    if not model_name:
+        issues.append("MISSING_MODEL_NAME")
+    if not seed_q:
+        issues.append("MISSING_QUESTION")
+    if not seed_a:
+        issues.append("MISSING_ANSWER")
+
+    if issues:
+        return None, issues
+
+    norm_seed = {
+        "record_id": f"seed::{seed_id}" if seed_id else None,
+        "source": "seed",
+        "source_id": seed_id,
+        "seed_id": seed_id,
+        "model_name": model_name,
+        "question": seed_q,
+        "answer": seed_a,
+        "seed_q": seed_q,
+        "seed_a": seed_a,
+        "class_id": seed.get("class_id"),
+        "level": level,
+        "tier": tier,
+        "seed_type": seed_type,
+        "raw_ref": {
+            "joined_from_corpus_id": join_source,
+        },
+    }
+    return norm_seed, issues
+
+
+def normalize_synth_row(row: Dict[str, Any], source: str) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+    """
+    Optional normalization for accepted/rejected synthetic examples if you want them folded into all_records.jsonl.
+    """
+    issues = []
+
+    source_id = safe_text(row.get("seed_id")) or safe_text(row.get("id")) or ""
+    model_name = extract_model_name(row) or normalize_model_name(row.get("model_name"))
+    question = normalize_question(row.get("question"))
+    answer = normalize_answer(row.get("answer"))
+
+    if not model_name:
+        issues.append("MISSING_MODEL_NAME")
+    if not question:
+        issues.append("MISSING_QUESTION")
+    if not answer:
+        issues.append("MISSING_ANSWER")
+
+    if issues:
+        return None, issues
+
+    norm_row = {
+        "record_id": f"{source}::{source_id}" if source_id else None,
+        "source": source,
+        "source_id": source_id,
+        "model_name": model_name,
+        "question": question,
+        "answer": answer,
+        "seed_id": safe_text(row.get("seed_id")),
+        "class_id": row.get("class_id"),
+        "level": safe_text(row.get("level")),
+        "tier": safe_text(row.get("tier")),
+        "raw_ref": {
+            "reason": row.get("reason"),
+        }
+    }
+    return norm_row, issues
+
+
+def count_duplicates(rows: List[Dict[str, Any]]) -> Dict[str, int]:
+    c = Counter()
+    for r in rows:
+        rid = r.get("record_id")
+        if rid:
+            c[rid] += 1
+    return {rid: n for rid, n in c.items() if n > 1}
+
+
+def build_consistency_report(
+    corpus_rows_raw: List[Dict[str, Any]],
+    seeds_raw: List[Dict[str, Any]],
+    normalized_corpus: List[Dict[str, Any]],
+    normalized_seeds: List[Dict[str, Any]],
+    corpus_issues: Counter,
+    seed_issues: Counter,
+    extra_sources_summary: Dict[str, Dict[str, int]],
+    duplicate_ids: Dict[str, int],
+) -> Dict[str, Any]:
+    by_model = Counter()
+    for row in normalized_corpus + normalized_seeds:
+        if row.get("model_name"):
+            by_model[row["model_name"]] += 1
+
+    return {
+        "counts": {
+            "corpus_raw": len(corpus_rows_raw),
+            "seeds_raw": len(seeds_raw),
+            "corpus_normalized_ok": len(normalized_corpus),
+            "seeds_normalized_ok": len(normalized_seeds),
+            "all_records_total": len(normalized_corpus) + len(normalized_seeds) + sum(
+                v.get("normalized_ok", 0) for v in extra_sources_summary.values()
+            ),
+        },
+        "issues": {
+            "corpus": dict(corpus_issues),
+            "seeds": dict(seed_issues),
+            "extra_sources": extra_sources_summary,
+        },
+        "duplicates": {
+            "duplicate_record_ids": duplicate_ids,
+            "duplicate_record_id_count": len(duplicate_ids),
+        },
+        "distribution": {
+            "records_by_model": dict(by_model)
+        }
+    }
+
+
+def normalize_extra_source(
+    path: Optional[str],
+    source_name: str,
+) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    if not path:
+        return [], {"raw": 0, "normalized_ok": 0}
+
+    rows = load_jsonl(path)
+    norm_rows = []
+    issues = Counter()
+
+    for row in rows:
+        norm_row, row_issues = normalize_synth_row(row, source=source_name)
+        if row_issues:
+            for x in row_issues:
+                issues[x] += 1
+        if norm_row:
+            norm_rows.append(norm_row)
+
+    summary = {
+        "raw": len(rows),
+        "normalized_ok": len(norm_rows),
+        "issues": dict(issues),
+    }
+    return norm_rows, summary
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--synth-plan", required=True, help="Path to synth_plan.json")
+    parser.add_argument("--corpus-jsonl", required=True, help="Path to corpus_combined.jsonl")
+    parser.add_argument("--accepted-synth-jsonl", default=None, help="Optional accepted synthetic JSONL")
+    parser.add_argument("--rejected-synth-jsonl", default=None, help="Optional rejected synthetic JSONL")
+    parser.add_argument("--out-seeds", required=True, help="Output JSONL for seeds_with_text")
+    parser.add_argument("--out-all-records", required=True, help="Output JSONL for all_records")
+    parser.add_argument("--out-report", required=True, help="Output JSON for consistency report")
+    args = parser.parse_args()
+
+    synth_plan = load_json(args.synth_plan)
+    corpus_rows_raw = load_jsonl(args.corpus_jsonl)
+
+    corpus_index = build_corpus_index(corpus_rows_raw)
+
+    normalized_corpus = []
+    normalized_seeds = []
+    corpus_issues = Counter()
+    seed_issues = Counter()
+
+    # Normalize corpus
+    for row in corpus_rows_raw:
+        norm_row, row_issues = normalize_corpus_row(row)
+        if row_issues:
+            for x in row_issues:
+                corpus_issues[x] += 1
+        if norm_row:
+            normalized_corpus.append(norm_row)
+
+    # Normalize seeds
+    for seed in synth_plan:
+        norm_seed, row_issues = normalize_seed_row(seed, corpus_index)
+        if row_issues:
+            for x in row_issues:
+                seed_issues[x] += 1
+        if norm_seed:
+            normalized_seeds.append(norm_seed)
+
+    # Optional extra sources
+    accepted_synth_rows, accepted_summary = normalize_extra_source(
+        args.accepted_synth_jsonl, "accepted_synth"
+    )
+    rejected_synth_rows, rejected_summary = normalize_extra_source(
+        args.rejected_synth_jsonl, "rejected_synth"
+    )
+
+    all_records = normalized_corpus + normalized_seeds + accepted_synth_rows + rejected_synth_rows
+
+    duplicate_ids = count_duplicates(all_records)
+
+    report = build_consistency_report(
+        corpus_rows_raw=corpus_rows_raw,
+        seeds_raw=synth_plan,
+        normalized_corpus=normalized_corpus,
+        normalized_seeds=normalized_seeds,
+        corpus_issues=corpus_issues,
+        seed_issues=seed_issues,
+        extra_sources_summary={
+            "accepted_synth": accepted_summary,
+            "rejected_synth": rejected_summary,
+        },
+        duplicate_ids=duplicate_ids,
+    )
+
+    save_jsonl(normalized_seeds, args.out_seeds)
+    save_jsonl(all_records, args.out_all_records)
+    save_json(report, args.out_report)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+---
+
+# 6. What this gives you immediately
+
+After running `prepare_inputs.py`, you will have:
+
+## `seeds_with_text.jsonl`
+Each row looks like:
+
+```json
+{
+  "record_id": "seed::STE-GENERAL-NL-2899",
+  "source": "seed",
+  "source_id": "STE-GENERAL-NL-2899",
+  "seed_id": "STE-GENERAL-NL-2899",
+  "model_name": "rebellion",
+  "question": "How can early-warning indicators for large uprisings be studied in a NetLogo rebellion model?",
+  "answer": "### MOVE 1 - CLARIFY ...",
+  "seed_q": "How can early-warning indicators for large uprisings be studied in a NetLogo rebellion model?",
+  "seed_a": "### MOVE 1 - CLARIFY ...",
+  "class_id": 13,
+  "level": "L3",
+  "tier": "C",
+  "seed_type": "member_safe",
+  "raw_ref": {
+    "joined_from_corpus_id": null
+  }
+}
+```
+
+## `all_records.jsonl`
+Contains normalized rows from:
+- corpus
+- seeds
+- optionally accepted synthetic
+- optionally rejected synthetic
+
+## `input_consistency_report.json`
+Contains:
+- counts
+- issue counts
+- duplicate record ids
+- record distribution by model
+
+---
+
+# 7. Example command
+
+```bash
+python -m qa_system_v2bis.synthetic_v2.prepare_inputs \
+  --synth-plan qa_system_v2/opro_l3l2_v8/synth_artifacts_v7/synth_plan.json \
+  --corpus-jsonl qa_system_v2/opro_l3l2_v8/corpus_combined.jsonl \
+  --out-seeds artifacts/normalized/seeds_with_text.jsonl \
+  --out-all-records artifacts/normalized/all_records.jsonl \
+  --out-report artifacts/normalized/input_consistency_report.json
+```
+
+If you also want accepted/rejected synthetic folded in:
+
+```bash
+python -m qa_system_v2bis.synthetic_v2.prepare_inputs \
+  --synth-plan qa_system_v2/opro_l3l2_v8/synth_artifacts_v7/synth_plan.json \
+  --corpus-jsonl qa_system_v2/opro_l3l2_v8/corpus_combined.jsonl \
+  --accepted-synth-jsonl artifacts/synthetic/accepted.jsonl \
+  --rejected-synth-jsonl artifacts/synthetic/rejected.jsonl \
+  --out-seeds artifacts/normalized/seeds_with_text.jsonl \
+  --out-all-records artifacts/normalized/all_records.jsonl \
+  --out-report artifacts/normalized/input_consistency_report.json
+```
+
+---
+
+# 8. Notes on assumptions
+
+This Phase 1 implementation assumes:
+
+## Seed join rule
+If a seed lacks `seed_q` / `seed_a`, it can be joined by:
+
+- `seed.seed_id == corpus.id`
+
+That matches the pattern in your examples.
+
+## Model naming
+The normalizer checks:
+
+- `model_name`
+- `model`
+- tags like `model:rebellion`
+
+and lowercases the final model name.
+
+## Question/answer extraction
+The normalizer prefers:
+- `question` / `answer`
+
+but falls back to:
+- `messages` with `role == user`
+- `messages` with `role == assistant`
+
+which matches your corpus examples.
+
+---
+
+# 9. What is not implemented yet
+
+Phases 0 and 1 stop at normalized inputs and schemas.
+
+Not yet implemented:
+- `.nlogo` parser
+- core profiles
+- extension profiles
+- routing
+- prompt builder
+- mode-aware Gate 2
+
+Those are Phase 2+.
+
+---
+
+# 10. Recommended next immediate step
+
+After this, the next thing to implement is:
+
+- **Phase 2: source-derived core profile extraction**
+
+because once `all_records.jsonl` exists, you’ll be able to:
+- compare corpus/seed terms to parsed source identifiers
+- detect extension families cleanly

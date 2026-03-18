@@ -1,0 +1,4236 @@
+
+---
+
+ That’s an important clarification — and it changes the design.
+
+If those “off-model” seeds/corpus are **intended coherent extensions of the base NetLogo model**, then they are not errors. They are a **different generation regime**.
+
+So the real issue is:
+
+> Your current pipeline treats every unsupported identifier as a hallucination,  
+> but some unsupported content is actually a valid, seed-grounded **model extension**.
+
+## The key fix
+
+You need to separate:
+
+1. **base-model correctness**
+2. **extension correctness**
+
+Right now your invariant system only supports #1.
+
+If you want examples like:
+- broadcast media layer
+- long-range links
+- leader roles
+- sympathetic → active state chains
+- network versions of `rebellion`
+
+then the prompt and invariant must explicitly allow **structured extensions**.
+
+---
+
+# New framing: two valid regimes
+
+For `rebellion`, and likely many other models, there are really two kinds of synthetic data.
+
+## Regime A: model-faithful
+Questions and answers about the actual source model.
+
+Examples:
+- how `grievance` works
+- effect of `government-legitimacy`
+- behavior of `cops`
+- active/jail dynamics
+
+In this regime:
+- use source-derived hard invariants
+- reject unsupported mechanisms
+
+## Regime B: model-anchored extension
+Questions and answers that start from the original model but propose coherent modifications or generalizations.
+
+Examples:
+- add broadcast media
+- add social links
+- split active/inactive into multiple states
+- add long-range ties
+- optimize large-network spread
+
+In this regime:
+- the seed may introduce new variables/concepts
+- those concepts are allowed **if they are framed as extensions**
+- they should not be rejected just because they are absent from the original code
+
+This is what your current system is missing.
+
+---
+
+# The real problem with the current setup
+
+Your current prompt says things like:
+
+- “Keep semantically equivalent to the seed”
+- “Do not invent identifiers outside this list”
+- “Do not change the model”
+
+But your seed set includes extension-oriented examples.
+
+So again the prompt is contradictory, but in a different way:
+
+- The seed says “extend the model”
+- The invariant says “stay inside the original model only”
+
+That guarantees rejections.
+
+---
+
+# What to do instead
+
+You need **two-layer invariants** and **two prompt modes**.
+
+---
+
+# 1. Split invariants into `core` and `extension`
+
+For each model, maintain:
+
+## A. `core_invariant`
+What exists in the source model.
+
+For `rebellion`, that includes:
+- `grievance`
+- `estimated-arrest-probability`
+- `active?`
+- `jail-term`
+- `government-legitimacy`
+- `vision`
+- etc.
+
+## B. `extension_profile`
+What kinds of extensions are acceptable for this model, based on:
+- seeds
+- corpus
+- class neighborhoods
+- maybe manual review
+
+This includes **concepts and invented identifiers that are allowed in extension mode**.
+
+---
+
+## Example for `rebellion`
+
+```json
+{
+  "model_name": "rebellion",
+  "core": {
+    "procedures": [
+      "setup",
+      "go",
+      "move",
+      "determine-behavior",
+      "grievance",
+      "estimated-arrest-probability",
+      "enforce",
+      "display-agent",
+      "display-agent-2d",
+      "display-agent-3d",
+      "display-cop"
+    ],
+    "variables": [
+      "active?",
+      "jail-term",
+      "k",
+      "neighborhood",
+      "perceived-hardship",
+      "risk-aversion",
+      "threshold"
+    ],
+    "breeds": [
+      "agents",
+      "an-agent",
+      "cops",
+      "cop"
+    ],
+    "widgets": [
+      "government-legitimacy",
+      "initial-agent-density",
+      "initial-cop-density",
+      "max-jail-term",
+      "movement?",
+      "vision",
+      "visualization"
+    ]
+  },
+  "extensions": {
+    "allowed_extension_families": [
+      "state_refinement",
+      "network_layer",
+      "broadcast_media",
+      "long_range_links",
+      "large_scale_optimization",
+      "early_warning_metrics"
+    ],
+    "allowed_extension_concepts": [
+      "rebellion-state",
+      "sympathetic agents",
+      "leader role",
+      "broadcast media",
+      "social network links",
+      "homophily",
+      "long-range links",
+      "small-world structure",
+      "degree centrality",
+      "critical mass",
+      "time-to-peak unrest",
+      "spatial clustering",
+      "early-warning indicators"
+    ],
+    "allowed_extension_identifiers": [
+      "rebellion-state",
+      "homophily-index",
+      "media-influence",
+      "social-influence-weight",
+      "global-rebellion-rate",
+      "ticks-to-tipping-point",
+      "execution-time",
+      "total-neighbor-influence",
+      "number-of-long-range-links",
+      "long-range-link-count",
+      "size-of-largest-cluster",
+      "mean-path-length",
+      "initial-discontent-level",
+      "local-link-radius"
+    ],
+    "extension_rules": [
+      "New identifiers must be clearly presented as additions to the original model.",
+      "Do not claim that extension identifiers already exist in the base source code.",
+      "Preserve conceptual continuity with the original rebellion dynamics.",
+      "Extensions should still revolve around grievance, activation, policing, diffusion, or scaling."
+    ]
+  }
+}
+```
+
+That is much closer to your real intent.
+
+---
+
+# 2. Add a third category besides “valid” and “invalid”
+
+Right now you effectively have:
+
+- valid = in source invariant
+- invalid = not in source invariant
+
+You need:
+
+## Category 1: `CORE_VALID`
+In source model.
+
+## Category 2: `EXTENSION_VALID`
+Not in source model, but allowed in extension profile.
+
+## Category 3: `INVALID`
+Neither source-grounded nor approved extension.
+
+That will dramatically reduce bad rejections.
+
+---
+
+# 3. Make the prompt explicitly say whether it is allowed to extend
+
+This is the biggest prompt fix.
+
+The model should know which mode it is in.
+
+---
+
+## Prompt mode A: `core_paraphrase`
+
+Use for strict base-model examples.
+
+### Key rule
+> Discuss only mechanisms present in the original model.
+
+---
+
+## Prompt mode B: `anchored_extension`
+
+Use for seeds like your “good problematic” examples.
+
+### Key rule
+> You may introduce coherent extensions to the original model if they are motivated by the seed. Any new states, variables, links, or layers must be presented explicitly as modifications or additions, not as existing parts of the original source code.
+
+That distinction is essential.
+
+---
+
+# 4. Prompt wording for extension mode
+
+Here is a strong template.
+
+```text
+You generate high-quality synthetic training data for NetLogo Q&A.
+
+Hard rules:
+- Output JSON only: {"question": "...", "answer": "..."}
+- No markdown fences, no preamble, no commentary.
+- Preserve technical correctness.
+- Distinguish clearly between the original model and proposed extensions.
+- Core model identifiers from the source may be backticked.
+- Extension identifiers may be introduced only if they are consistent with the allowed extension profile below.
+- Do not present extension identifiers as if they already exist in the original code.
+
+Priority order:
+1. Technical correctness
+2. Preserve the educational intent of the seed
+3. Stay anchored to the original model
+4. Style
+
+CONTEXT:
+- model_name: rebellion
+- level: L3
+- tier: C
+- mode: anchored_extension
+
+BASE MODEL SUMMARY:
+The original `rebellion` model explains when `agents` become active based on `grievance`, `risk-aversion`, and `estimated-arrest-probability`, while `cops` move locally and arrest active agents by assigning `jail-term`.
+
+CORE IDENTIFIERS:
+- procedures: ...
+- variables: ...
+- breeds: ...
+- widgets: ...
+
+ALLOWED EXTENSION FAMILIES:
+- state refinement
+- network layer
+- broadcast media
+- long-range links
+- large-scale optimization
+- early-warning metrics
+
+ALLOWED EXTENSION CONCEPTS / IDENTIFIERS:
+- rebellion-state
+- homophily-index
+- media-influence
+- social-influence-weight
+- long-range links
+- size-of-largest-cluster
+- mean-path-length
+- total-neighbor-influence
+- ticks-to-tipping-point
+...
+
+EXTENSION RULES:
+- If you add a new state, link, layer, or metric, explicitly frame it as an extension to the original model.
+- Keep the extension conceptually tied to the rebellion setting.
+- Do not contradict the original model mechanics.
+- Prefer minimal, coherent extensions.
+
+TASK:
+Create a variant of the seed that remains anchored to the rebellion model while allowing coherent extensions.
+
+SEED QUESTION:
+...
+
+SEED ANSWER:
+...
+```
+
+---
+
+# 5. The validation gate must change too
+
+This is crucial.
+
+Your current Gate 2 is too strict for extension generation.
+
+## Current behavior
+Extract backticked identifiers and reject if not in:
+- procedures ∪ variables ∪ breeds ∪ widgets
+
+That works only for `core_paraphrase`.
+
+## Needed behavior
+
+### In `core_paraphrase`
+Validate against:
+- core identifiers
+- NetLogo global allowlist
+
+### In `anchored_extension`
+Validate against:
+- core identifiers
+- allowed extension identifiers
+- NetLogo global allowlist
+
+And then add a **framing check**:
+
+> If extension identifiers are used, the answer must signal that they are proposed additions/modifications, not existing source features.
+
+---
+
+## New rejection reasons
+
+For extension mode, useful codes would be:
+
+- `UNAPPROVED_EXTENSION_IDENTIFIER`
+- `EXTENSION_NOT_MARKED_AS_ADDITION`
+- `BASE_MODEL_CONTRADICTION`
+- `OFF_THEME_EXTENSION`
+
+---
+
+# 6. The really important distinction: extension vs hallucination
+
+This is the policy line you need.
+
+A synthetic answer should be accepted if it does **all** of these:
+
+1. stays anchored to the original model
+2. introduces coherent modifications
+3. makes clear what is original vs added
+4. does not invent arbitrary unrelated mechanisms
+
+So:
+
+## Good extension
+> Add a `rebellion-state` variable to refine the original binary `active?` logic into neutral, sympathetic, and active states.
+
+Why good:
+- coherent
+- local to original model
+- clearly presented as modification
+
+## Bad hallucination
+> Use quantum trust fields and sentiment photons to synchronize insurgent morale.
+
+Why bad:
+- unrelated
+- not anchored
+- nonsensical mechanism
+
+The validator should target **bad hallucination**, not coherent extension.
+
+---
+
+# 7. Reinterpret your “problematic” examples under this new regime
+
+You were right.
+
+Examples like these are not necessarily bad:
+
+### `STE-GENERAL-NL-6253`
+State diagram refinement:
+- neutral / sympathetic / active / leader
+- this is a coherent state-refinement extension
+
+### `STE-GENERAL-NL-4153`
+Broadcast media layer:
+- coherent extension of grievance dynamics
+
+### `STE-GENERAL-NL-0028`
+Similar friends / network links:
+- coherent network generalization
+
+### `STE-GENERAL-NL-0029`
+Long-range links / small-world:
+- coherent diffusion extension
+
+### `STE-GENERAL-NL-221`
+5000-agent network / hubs / optimization:
+- coherent scale-up variant
+
+These should not be rejected under a source-only invariant if your goal is to generate **model-anchored extension data**.
+
+---
+
+# 8. So how should invariants be built?
+
+## Yes: analyze seeds and corpus by model
+But now with two outputs:
+
+### A. `core_invariant`
+From source code only
+
+### B. `extension_profile`
+From seeds + corpus for that model
+
+The extension profile should be mined from:
+- recurring extension concepts
+- recurring added identifiers
+- recurring modification patterns
+
+---
+
+# 9. Better schema for your actual use case
+
+Here is the schema I would recommend now.
+
+```json
+{
+  "model_name": "rebellion",
+  "core": {
+    "procedures": [...],
+    "variables": [...],
+    "breeds": [...],
+    "widgets": [...],
+    "model_summary": "..."
+  },
+  "extensions": {
+    "families": [
+      {
+        "name": "state_refinement",
+        "concepts": [
+          "rebellion-state",
+          "neutral",
+          "sympathetic",
+          "active rebels",
+          "leader role"
+        ],
+        "rules": [
+          "must be presented as a replacement or refinement of `active?`"
+        ]
+      },
+      {
+        "name": "network_layer",
+        "concepts": [
+          "social network links",
+          "similar friends",
+          "homophily-index",
+          "network density"
+        ],
+        "rules": [
+          "must be presented as an added interaction layer beyond local `neighborhood` dynamics"
+        ]
+      },
+      {
+        "name": "broadcast_media",
+        "concepts": [
+          "media-influence",
+          "social-influence-weight",
+          "broadcast signal"
+        ],
+        "rules": [
+          "must be framed as an added global influence on grievance or activation"
+        ]
+      },
+      {
+        "name": "long_range_links",
+        "concepts": [
+          "long-range links",
+          "small-world",
+          "mean-path-length",
+          "largest cluster"
+        ],
+        "rules": [
+          "must be framed as adding nonlocal ties beyond spatial locality"
+        ]
+      }
+    ],
+    "general_rules": [
+      "extension content must remain anchored to rebellion dynamics",
+      "do not present extension terms as original source code identifiers unless they exist in core",
+      "prefer minimal coherent extensions"
+    ]
+  }
+}
+```
+
+This is much closer to the data you actually want to generate.
+
+---
+
+# 10. Task routing should now choose among 3 modes
+
+Not just 2.
+
+## Mode 1: `core_paraphrase`
+Seed stays within the original model.
+
+## Mode 2: `anchored_extension`
+Seed proposes coherent modifications.
+
+## Mode 3: `skip`
+Seed is neither source-grounded nor a coherent extension.
+
+This is likely the right routing for your 500k plan.
+
+---
+
+# 11. Suggested routing logic
+
+For each seed/corpus item, classify it by model into:
+
+### `core_paraphrase`
+Mostly uses core identifiers and core concepts.
+
+### `anchored_extension`
+Uses extension-family concepts that are approved for that model.
+
+### `skip`
+Too far away, incoherent, or cross-model drift.
+
+For `rebellion`:
+
+- `0175`, `0176`, maybe `2899` → likely `core_paraphrase`
+- `6253`, `4153`, `0028`, `0029`, `221` → likely `anchored_extension`
+
+---
+
+# 12. How the answer style should differ in extension mode
+
+This is subtle but important.
+
+In extension mode, answers should use language like:
+
+- “to extend the original model...”
+- “you could add...”
+- “if you replace the binary `active?` logic with...”
+- “one coherent modification is...”
+- “this would require introducing a new variable such as...”
+
+They should **not** say:
+
+- “the model already uses...”
+- “the existing code tracks...”
+- “the built-in network layer...”
+
+unless that is true.
+
+That keeps extension examples technically honest.
+
+---
+
+# 13. Example: same seed, old bad behavior vs new desired behavior
+
+## Seed
+“How do I add a broadcast media layer that interacts with local networks in a NetLogo rebellion model?”
+
+## Bad under current system
+Rejected because:
+- `media-influence` not in base invariant
+- `social links` not in base invariant
+
+## Good under extension mode
+Accepted if the answer says:
+
+> To extend the original `rebellion` model, add a global media signal that shifts grievance or activation thresholds, and combine it with a local network layer for neighbor influence...
+
+This is exactly the kind of synthetic data you want.
+
+---
+
+# 14. Practical recommendation for your pipeline
+
+## Keep the source-derived invariant
+Do not weaken it. It is still needed.
+
+## But add an extension layer
+Per model, mined from seeds/corpus and lightly curated.
+
+## Then make the validator mode-aware
+Validate against:
+- `core` only in strict mode
+- `core ∪ approved_extensions` in extension mode
+
+## And require explicit extension framing
+This is what prevents sloppy hallucination.
+
+---
+
+# 15. The best policy sentence for your prompt
+
+If you only add one key line, make it this:
+
+> You may introduce new variables, states, links, or mechanisms only as explicit extensions to the original model, never as unsupported claims about what the original code already contains.
+
+That captures the whole design.
+
+---
+
+# 16. Bottom line
+
+You are right:
+
+> those “problematic” examples are often not bad — they are coherent **extensions**.
+
+So the fix is **not** to force everything into source-faithful invariants.
+
+The fix is to support **two valid target spaces**:
+
+1. **base-model Q&A**
+2. **model-anchored extension Q&A**
+
+with:
+- different prompt modes
+- different validation logic
+- a two-layer invariant/profile system
+
+---
+
+
+
+1. rewrite the full `rebellion` worked example in **extension-aware form**,  
+2. draft a concrete `extension_profile` for `rebellion`, or  
+3. propose updated Gate 2 validation logic for `core` vs `anchored_extension`.
+
+Absolutely. Below is a complete package for `rebellion` in an **extension-aware** setup.
+
+---
+
+# 1. Full worked example for `rebellion` in `anchored_extension` mode
+
+I’ll use this real seed because it is a strong example of a **coherent extension** rather than a strict source-faithful paraphrase:
+
+```json
+{
+  "seed_id": "STE-GENERAL-NL-6253",
+  "class_id": 13,
+  "model_name": "rebellion",
+  "level": "L3",
+  "tier": "C",
+  "seed_type": "rep_safe"
+}
+```
+
+Seed text:
+
+**Question**:  
+How detailed should my state diagram be for a civil unrest NetLogo model?
+
+**Answer**:  
+To determine the necessary detail for your state diagram, we must first clarify whether your research goal is to identify the minimal conditions for mobilization or to simulate the specific socio-political lifecycle of a riot. In NetLogo, 'states' are only functionally distinct if they trigger different procedures or variable updates in your code.
+
+Consider these two competing hypotheses:
+1. **The Threshold Hypothesis (Coarse-Grained):** A simple binary state (Active vs. Inactive) is sufficient because civil unrest is an emergent threshold phenomenon; individual roles (like 'leaders') are mathematically redundant if the aggregate density of 'active' agents drives the feedback loop.
+2. **The Catalytic Role Hypothesis (Fine-Grained):** Granular states (e.g., Sympathizer, Protester, Leader) are necessary because specific roles like 'Leaders' possess unique influence radii or risk-aversion modifiers that create non-linear mobilization patterns that a binary model misses.
+
+You can operationalize this by defining a 'Global Unrest Index' (percentage of non-inactive turtles) and measuring the 'Time to Peak Unrest.' 
+
+To test this, design a BehaviorSpace experiment comparing two versions of your model: one with 2 states and one with 4 states. Use a parameter sweep across `initial-grievance` and `risk-aversion` while keeping `population-density` constant.
+
+**Predictions:**
+- If the Threshold Hypothesis is correct, the tipping point for mass mobilization will occur at the same `initial-grievance` level regardless of whether 'Leaders' are explicitly modeled as a separate state.
+- If the Catalytic Role Hypothesis is correct, the model with a 'Leader' state will exhibit a significantly lower threshold for mobilization and a faster 'Time to Peak' compared to the binary model.
+
+Keep in mind that this approach assumes turtle interactions are the primary driver; it ignores external spatial constraints or 'top-down' interventions like police presence which might affect states differently. 
+
+Which specific transition in your current model do you suspect might be redundant, and how would merging those two states change the logic in your `go` procedure?
+
+---
+
+## 1.1 Why this seed should not be treated as “invalid”
+
+Under the old system, this seed would be rejected because it mentions things not in the original source model:
+
+- `initial-grievance`
+- `population-density`
+- leader roles
+- multi-state diagrams
+
+But that is the wrong interpretation if your goal includes **model-anchored extensions**.
+
+This seed is actually a good `rebellion` extension because it is:
+
+- still about unrest/rebellion dynamics
+- still threshold-oriented
+- still tied to agent activation
+- still scientifically coherent
+- still close to the base model’s logic around `active?`, `risk-aversion`, and `go`
+
+So this should route to:
+
+- **mode = `anchored_extension`**
+
+not:
+
+- `core_paraphrase`
+- `skip`
+
+---
+
+## 1.2 Core invariant + extension profile injected into the prompt
+
+### Core invariant
+From your supplied invariant:
+
+```json
+{
+  "model_name": "Rebellion",
+  "procedures": [
+    "determine-behavior",
+    "display-agent",
+    "display-agent-2d",
+    "display-agent-3d",
+    "display-cop",
+    "enforce",
+    "estimated-arrest-probability",
+    "go",
+    "grievance",
+    "move",
+    "setup"
+  ],
+  "breeds": [
+    "agents",
+    "an-agent",
+    "cop",
+    "cops"
+  ],
+  "variables": [
+    "active?",
+    "jail-term",
+    "k",
+    "neighborhood",
+    "perceived-hardship",
+    "risk-aversion",
+    "threshold"
+  ],
+  "widgets": [
+    "government-legitimacy",
+    "initial-agent-density",
+    "initial-cop-density",
+    "max-jail-term",
+    "movement?",
+    "vision",
+    "visualization"
+  ]
+}
+```
+
+### Extension profile snippet
+For this worked example, we allow only the extension family relevant to the seed:
+
+```json
+{
+  "families": ["state_refinement"],
+  "allowed_extension_identifiers": [
+    "rebellion-state",
+    "global-unrest-index",
+    "time-to-peak-unrest",
+    "initial-grievance",
+    "population-density"
+  ],
+  "allowed_extension_concepts": [
+    "state diagram",
+    "sympathizer",
+    "protester",
+    "leader role",
+    "coarse-grained states",
+    "fine-grained states",
+    "state refinement"
+  ],
+  "extension_rules": [
+    "New identifiers must be presented as additions to the original model.",
+    "Do not claim that the original rebellion code already contains these extension identifiers.",
+    "Extensions should remain tied to activation, grievance, threshold effects, policing, or diffusion."
+  ]
+}
+```
+
+---
+
+## 1.3 Full prompt sent to the LLM
+
+Mode: `anchored_extension`  
+Level: `L3`  
+Tier: `C`  
+Regime: `MODEL_EXTEND`
+
+```text
+You generate high-quality synthetic training data for NetLogo Q&A.
+
+Hard rules:
+- Output JSON only: {"question": "...", "answer": "..."}
+- No markdown fences, no preamble, no commentary.
+- Preserve technical correctness.
+- Distinguish clearly between the original model and proposed extensions.
+- Core model identifiers from the source may be backticked.
+- Extension identifiers may be backticked only if they are consistent with the allowed extension profile below.
+- Do not present extension identifiers as if they already exist in the original source code.
+
+Priority order:
+1. Technical correctness
+2. Preserve the educational intent of the seed
+3. Stay anchored to the original model
+4. Style
+
+CONTEXT:
+- model_name: rebellion
+- level: L3
+- tier: C
+- mode: anchored_extension
+- invariant_regime: MODEL_EXTEND
+
+Style: L3 = scientific coaching.
+Include:
+- exactly one hypothesis
+- exactly one experiment
+- exactly one limitation
+Encourage scientific reasoning.
+
+BASE MODEL SUMMARY:
+The original `rebellion` model explains when `agents` become active based on `grievance`, `risk-aversion`, and `estimated-arrest-probability`, while `cops` move locally and arrest active agents by assigning `jail-term`.
+
+CORE MODEL INVARIANTS:
+- procedures: determine-behavior, display-agent, display-agent-2d, display-agent-3d, display-cop, enforce, estimated-arrest-probability, go, grievance, move, setup
+- variables: active?, jail-term, k, neighborhood, perceived-hardship, risk-aversion, threshold
+- breeds: agents, an-agent, cop, cops
+- widgets: government-legitimacy, initial-agent-density, initial-cop-density, max-jail-term, movement?, vision, visualization
+
+ALLOWED EXTENSION FAMILY:
+- state_refinement
+
+ALLOWED EXTENSION IDENTIFIERS:
+- rebellion-state
+- global-unrest-index
+- time-to-peak-unrest
+- initial-grievance
+- population-density
+
+ALLOWED EXTENSION CONCEPTS:
+- state diagram
+- sympathizer
+- protester
+- leader role
+- coarse-grained states
+- fine-grained states
+- state refinement
+
+EXTENSION RULES:
+- If you introduce a new state variable, metric, or parameter, explicitly frame it as an extension to the original model.
+- Do not claim that the base source code already contains `rebellion-state`, `global-unrest-index`, `time-to-peak-unrest`, `initial-grievance`, or `population-density`.
+- Keep the extension conceptually tied to the rebellion model.
+
+TASK:
+Create a natural variant of the seed that stays anchored to the rebellion model while allowing coherent state-refinement extensions.
+
+SEED QUESTION:
+How detailed should my state diagram be for a civil unrest NetLogo model?
+
+SEED ANSWER:
+[full seed answer]
+
+OUTPUT:
+Return ONE JSON object only: {"question": "...", "answer": "..."}
+```
+
+---
+
+## 1.4 Example good LLM output
+
+```json
+{
+  "question": "If I extend the rebellion model with more agent states, how detailed should the state diagram be?",
+  "answer": "In the original model, the essential behavioral distinction is already captured by `active?` together with `jail-term`, so a binary structure is the simplest faithful starting point. A useful hypothesis is that adding a new extension variable such as `rebellion-state` will only improve the model if those extra states produce transition rules that the original `determine-behavior` logic cannot represent. To test that, compare two versions in BehaviorSpace: the original binary version and an extended version with `rebellion-state`, then sweep `government-legitimacy`, `vision`, and an added parameter such as `initial-grievance` while tracking an added metric like `time-to-peak-unrest` or `global-unrest-index`. If the finer state diagram is genuinely informative, the extended version should shift the tipping conditions or change the temporal pattern of activation rather than merely renaming the same binary behavior. One limitation is that once you add roles such as sympathizers or leaders, you also take on extra calibration assumptions, because those roles are not part of the original code and must be justified as explicit extensions."
+}
+```
+
+---
+
+## 1.5 Why this output is good
+
+It does exactly what extension-aware generation should do:
+
+### Anchors to the base model
+It references real core identifiers:
+- `active?`
+- `jail-term`
+- `determine-behavior`
+- `government-legitimacy`
+- `vision`
+
+### Allows coherent extensions
+It introduces approved extension identifiers:
+- `rebellion-state`
+- `initial-grievance`
+- `time-to-peak-unrest`
+- `global-unrest-index`
+
+### Frames them correctly
+It says:
+- “If I extend…”
+- “adding a new extension variable…”
+- “the original model…”
+- “not part of the original code”
+
+That is exactly the distinction you want.
+
+---
+
+## 1.6 Validation gates for this worked example
+
+### Gate 1: embedding similarity
+Should pass because it remains near:
+- class 13
+- rebellion dynamics
+- state structure / mobilization logic
+- experimental comparison
+
+### Gate 2: extension-aware invariant validation
+Backticked identifiers found:
+
+**Core**
+- `active?`
+- `jail-term`
+- `determine-behavior`
+- `government-legitimacy`
+- `vision`
+
+**Extension**
+- `rebellion-state`
+- `initial-grievance`
+- `time-to-peak-unrest`
+- `global-unrest-index`
+
+All are allowed in `anchored_extension` mode.
+
+### Framing check
+Passes because the answer explicitly marks the extension as an addition:
+- “In the original model…”
+- “adding a new extension variable…”
+- “extended version…”
+- “not part of the original code…”
+
+### Gate 3: deduplication
+Should pass if this exact wording is new.
+
+---
+
+## 1.7 Example bad output in extension mode
+
+```json
+{
+  "question": "How does the rebellion model use `rebellion-state` to handle leaders and sympathizers?",
+  "answer": "The model already tracks `rebellion-state`, which determines whether each agent is neutral, sympathetic, active, or a leader."
+}
+```
+
+This should be rejected even in extension mode.
+
+Why:
+
+- `rebellion-state` is approved as an extension identifier
+- but the answer falsely claims it already exists in the original model
+
+So this is not a good extension; it is a **base-model misrepresentation**.
+
+Rejection code:
+- `BASE_MODEL_MISREPRESENTATION`
+or
+- `EXTENSION_NOT_MARKED_AS_ADDITION`
+
+---
+
+# 2. Draft `extension_profile` for `rebellion`
+
+Below is a practical profile you can actually use.
+
+```json
+{
+  "model_name": "rebellion",
+  "core": {
+    "procedures": [
+      "determine-behavior",
+      "display-agent",
+      "display-agent-2d",
+      "display-agent-3d",
+      "display-cop",
+      "enforce",
+      "estimated-arrest-probability",
+      "go",
+      "grievance",
+      "move",
+      "setup"
+    ],
+    "breeds": [
+      "agents",
+      "an-agent",
+      "cop",
+      "cops"
+    ],
+    "variables": [
+      "active?",
+      "jail-term",
+      "k",
+      "neighborhood",
+      "perceived-hardship",
+      "risk-aversion",
+      "threshold"
+    ],
+    "widgets": [
+      "government-legitimacy",
+      "initial-agent-density",
+      "initial-cop-density",
+      "max-jail-term",
+      "movement?",
+      "vision",
+      "visualization"
+    ],
+    "model_summary": "The original rebellion model explains when agents become active based on grievance, risk aversion, and estimated arrest probability, while cops police local neighborhoods and assign jail terms."
+  },
+  "extensions": {
+    "families": [
+      {
+        "name": "state_refinement",
+        "concepts": [
+          "state diagram",
+          "coarse-grained states",
+          "fine-grained states",
+          "sympathizer",
+          "protester",
+          "leader role",
+          "state refinement"
+        ],
+        "identifiers": [
+          "rebellion-state",
+          "global-unrest-index",
+          "time-to-peak-unrest",
+          "initial-grievance",
+          "population-density"
+        ],
+        "rules": [
+          "Must be presented as replacing or refining the original binary `active?` logic.",
+          "Must not be described as already present in the base source code."
+        ]
+      },
+      {
+        "name": "network_layer",
+        "concepts": [
+          "social network links",
+          "similar friends",
+          "network density",
+          "homophily",
+          "threshold contagion",
+          "friend influence"
+        ],
+        "identifiers": [
+          "homophily-index",
+          "global-rebellion-rate",
+          "network-density",
+          "rebel-friends-count",
+          "social-link-weight"
+        ],
+        "rules": [
+          "Must be framed as an added interaction layer beyond local `neighborhood` dynamics.",
+          "Should remain connected to grievance, threshold effects, or activation."
+        ]
+      },
+      {
+        "name": "broadcast_media",
+        "concepts": [
+          "broadcast media",
+          "global signal",
+          "media influence",
+          "synchronization",
+          "media shock"
+        ],
+        "identifiers": [
+          "media-influence",
+          "social-influence-weight",
+          "media-signal",
+          "time-to-critical-mass",
+          "spatial-clustering-index"
+        ],
+        "rules": [
+          "Must be framed as an added global influence on grievance or activation.",
+          "Must not imply that broadcast media exists in the original code."
+        ]
+      },
+      {
+        "name": "long_range_links",
+        "concepts": [
+          "long-range links",
+          "small-world structure",
+          "shortcuts",
+          "cluster merging",
+          "path length"
+        ],
+        "identifiers": [
+          "number-of-long-range-links",
+          "long-range-link-count",
+          "size-of-largest-cluster",
+          "mean-path-length",
+          "local-link-radius",
+          "initial-discontent-level"
+        ],
+        "rules": [
+          "Must be framed as adding nonlocal ties beyond the base spatial-local mechanism.",
+          "Should remain about rebellion spread, tipping, or cluster growth."
+        ]
+      },
+      {
+        "name": "large_scale_optimization",
+        "concepts": [
+          "large agent populations",
+          "computation time",
+          "incremental updates",
+          "hub targeting",
+          "execution efficiency"
+        ],
+        "identifiers": [
+          "ticks-to-tipping-point",
+          "execution-time",
+          "total-neighbor-influence",
+          "cache-update-mode",
+          "degree-centrality-seed"
+        ],
+        "rules": [
+          "Must be presented as a scaling or implementation extension.",
+          "Should distinguish computational speed from rebellion dynamics."
+        ]
+      },
+      {
+        "name": "early_warning_metrics",
+        "concepts": [
+          "early-warning indicators",
+          "critical slowing down",
+          "variance spike",
+          "autocorrelation",
+          "spatial clustering"
+        ],
+        "identifiers": [
+          "lag-1-autocorrelation",
+          "variance-window",
+          "spatial-autocorrelation",
+          "ready-to-rebel-index"
+        ],
+        "rules": [
+          "Metrics may be added for analysis even if they are not part of the original code.",
+          "Should be tied to core quantities like `active?`, `grievance`, `vision`, or `government-legitimacy`."
+        ]
+      }
+    ],
+    "general_rules": [
+      "Extension content must remain anchored to rebellion dynamics.",
+      "At least one core identifier or clearly core concept should appear in every extension answer.",
+      "Do not present extension identifiers as original source-code elements unless they are in the core invariant.",
+      "Prefer minimal coherent extensions over broad redesigns."
+    ],
+    "framing_cues": [
+      "to extend the original model",
+      "one extension is",
+      "you could add",
+      "you could introduce",
+      "if you modify the model",
+      "in an extended version",
+      "replace the original binary logic with",
+      "beyond the original code"
+    ],
+    "disallowed_unanchored_themes": [
+      "quantum mechanics",
+      "genetics",
+      "financial derivatives",
+      "cosmology"
+    ]
+  }
+}
+```
+
+---
+
+# 3. Updated Gate 2 validation logic for `core` vs `anchored_extension`
+
+This is the biggest structural change.
+
+---
+
+## 3.1 Current problem
+
+Your current Gate 2 appears to do:
+
+- extract backticked identifiers
+- reject anything not in:
+  - procedures
+  - variables
+  - breeds
+  - widgets
+
+That is fine only for strict source-faithful generation.
+
+It is too narrow for coherent extension mode.
+
+---
+
+## 3.2 New Gate 2 should be mode-aware
+
+## Mode A: `core_paraphrase`
+Allowed identifiers:
+- core identifiers
+- global NetLogo terms
+
+Forbidden:
+- extension identifiers
+- unsupported concepts framed as existing mechanisms
+
+## Mode B: `anchored_extension`
+Allowed identifiers:
+- core identifiers
+- approved extension identifiers for that model
+- global NetLogo terms
+
+Additional requirements:
+- extension identifiers must be framed as additions/modifications
+- answer must remain anchored to the base model
+
+---
+
+## 3.3 New validation checks
+
+For every generated Q&A, run these checks.
+
+### Check 1: identifier allowlist
+Extract backticked identifiers.
+
+#### In `core_paraphrase`
+Every backticked identifier must be in:
+- `core`
+- or global NetLogo allowlist
+
+Else reject:
+- `UNKNOWN_CORE_IDENTIFIER`
+
+#### In `anchored_extension`
+Every backticked identifier must be in:
+- `core`
+- or `approved_extension_identifiers`
+- or global NetLogo allowlist
+
+Else reject:
+- `UNAPPROVED_EXTENSION_IDENTIFIER`
+
+---
+
+### Check 2: extension framing
+Only in `anchored_extension`.
+
+If any extension identifier appears, require explicit framing.
+
+Good framing patterns:
+- “extend the original model”
+- “add”
+- “introduce”
+- “modify”
+- “in an extended version”
+- “replace the original”
+- “not part of the original code”
+
+If extension identifiers appear without framing, reject:
+- `EXTENSION_REQUIRES_FRAMING`
+
+---
+
+### Check 3: base-model misrepresentation
+Only in `anchored_extension`.
+
+Reject if the answer implies extension identifiers already exist in the base model.
+
+Bad patterns:
+- “the model uses `rebellion-state`”
+- “the existing code tracks `media-influence`”
+- “the built-in network layer”
+- “the original model includes `homophily-index`”
+
+Reject:
+- `BASE_MODEL_MISREPRESENTATION`
+
+---
+
+### Check 4: minimum anchor requirement
+Only in `anchored_extension`.
+
+Require the answer to reference the base model by including at least one of:
+- a core identifier
+- a strong core concept from `model_summary`
+
+For `rebellion`, examples:
+- `active?`
+- `grievance`
+- `estimated-arrest-probability`
+- `government-legitimacy`
+- `cops`
+- `jail-term`
+- `vision`
+- “original rebellion model”
+
+If not, reject:
+- `INSUFFICIENT_CORE_ANCHOR`
+
+This prevents extension answers from drifting into generic social modeling.
+
+---
+
+### Check 5: unsupported concept scan
+In both modes.
+
+Reject if the answer introduces concepts that are neither:
+- core
+- approved extension concepts
+- general NetLogo concepts
+- generic scientific language
+
+Examples to reject:
+- unrelated domain drift
+- incoherent mechanism drift
+
+Reject:
+- `UNSUPPORTED_CONCEPT`
+
+---
+
+## 3.4 Suggested rejection codes
+
+Use these codes:
+
+- `UNKNOWN_CORE_IDENTIFIER`
+- `UNAPPROVED_EXTENSION_IDENTIFIER`
+- `EXTENSION_REQUIRES_FRAMING`
+- `BASE_MODEL_MISREPRESENTATION`
+- `INSUFFICIENT_CORE_ANCHOR`
+- `UNSUPPORTED_CONCEPT`
+
+---
+
+## 3.5 Pseudocode for the new Gate 2
+
+```python
+def validate_identifiers_and_extensions(
+    question: str,
+    answer: str,
+    mode: str,
+    model_profile: dict,
+    global_allow: set
+):
+    text = question + "\n" + answer
+
+    core_ids = build_core_identifier_set(model_profile["core"])
+    ext_ids = build_extension_identifier_set(model_profile.get("extensions", {}))
+    ext_concepts = build_extension_concept_set(model_profile.get("extensions", {}))
+    framing_cues = set(model_profile.get("extensions", {}).get("framing_cues", []))
+
+    backticked = extract_backticked_identifiers(text)
+    plain_concepts = extract_candidate_concepts(text)
+
+    used_core = [x for x in backticked if x in core_ids]
+    used_ext = [x for x in backticked if x in ext_ids]
+    unknown = [x for x in backticked if x not in core_ids and x not in ext_ids and x not in global_allow]
+
+    if mode == "core_paraphrase":
+        if unknown:
+            return reject("UNKNOWN_CORE_IDENTIFIER", unknown)
+
+        if used_ext:
+            return reject("UNAPPROVED_EXTENSION_IDENTIFIER", used_ext)
+
+        unsupported = [
+            c for c in plain_concepts
+            if is_model_specific(c)
+            and c not in ext_concepts
+            and c not in core_ids
+            and c not in global_allow
+        ]
+        # optional stricter scan here
+        return accept()
+
+    elif mode == "anchored_extension":
+        if unknown:
+            return reject("UNAPPROVED_EXTENSION_IDENTIFIER", unknown)
+
+        if used_ext:
+            if not has_extension_framing(answer, framing_cues):
+                return reject("EXTENSION_REQUIRES_FRAMING", used_ext)
+
+            if implies_base_model_contains_extensions(answer, used_ext):
+                return reject("BASE_MODEL_MISREPRESENTATION", used_ext)
+
+        if not has_core_anchor(text, core_ids, model_profile["core"].get("model_summary", "")):
+            return reject("INSUFFICIENT_CORE_ANCHOR", [])
+
+        unsupported = [
+            c for c in plain_concepts
+            if is_suspicious_model_specific(c)
+            and c not in ext_concepts
+            and c not in core_ids
+            and c not in ext_ids
+            and c not in global_allow
+        ]
+        if unsupported:
+            return reject("UNSUPPORTED_CONCEPT", unsupported[:10])
+
+        return accept()
+
+    else:
+        return reject("UNKNOWN_MODE", [mode])
+```
+
+---
+
+## 3.6 Heuristic helpers
+
+### `has_extension_framing(answer, framing_cues)`
+Return true if answer includes phrases like:
+- “extend the original model”
+- “you could add”
+- “introduce”
+- “modify”
+- “extended version”
+- “not part of the original code”
+
+### `implies_base_model_contains_extensions(answer, used_ext)`
+Flag patterns such as:
+- “the model uses X”
+- “the existing code contains X”
+- “X is already tracked”
+- “the built-in X”
+
+without nearby framing like “add” or “extend”
+
+### `has_core_anchor(text, core_ids, model_summary)`
+Return true if:
+- at least one core identifier is used, or
+- answer explicitly mentions “original model”, “base model”, or summary concepts
+
+---
+
+## 3.7 Example outcomes under the new Gate 2
+
+### Example A: valid core answer
+Uses only:
+- `grievance`
+- `active?`
+- `government-legitimacy`
+
+Mode:
+- `core_paraphrase`
+
+Result:
+- pass
+
+---
+
+### Example B: valid extension answer
+Uses:
+- `active?`
+- `government-legitimacy`
+- `rebellion-state`
+- `time-to-peak-unrest`
+
+Answer says:
+- “To extend the original model…”
+- “add a `rebellion-state` variable…”
+
+Mode:
+- `anchored_extension`
+
+Result:
+- pass
+
+---
+
+### Example C: invalid extension answer
+Uses:
+- `rebellion-state`
+
+Answer says:
+- “the model already tracks `rebellion-state`”
+
+Mode:
+- `anchored_extension`
+
+Result:
+- reject `BASE_MODEL_MISREPRESENTATION`
+
+---
+
+### Example D: unsupported drift
+Uses:
+- `quantum-sentiment-field`
+
+Mode:
+- any
+
+Result:
+- reject `UNSUPPORTED_CONCEPT` or `UNAPPROVED_EXTENSION_IDENTIFIER`
+
+---
+
+# Practical summary
+
+## What changes now
+You are no longer asking one invariant to do two incompatible jobs.
+
+Instead:
+
+### `core`
+Defines what is truly in the original NetLogo model.
+
+### `extensions`
+Defines which coherent model-anchored additions are allowed.
+
+### `mode`
+Tells the validator which rules to apply:
+- `core_paraphrase`
+- `anchored_extension`
+
+---
+
+# Recommended next implementation order
+
+1. **Keep your current core invariants**
+2. **Add `extension_profile` per model**
+3. **Add mode-aware Gate 2**
+4. **Add routing from seed → core vs extension**
+5. **Update prompts to explicitly frame extensions**
+
+---
+
+
+1. a **`route_seed()` classifier** for `core_paraphrase` vs `anchored_extension`,  
+2. a **revised prompt builder** that consumes `core + extension_profile`, or  
+3. a **second worked example for `rebellion`** using the `broadcast_media` extension family.
+
+Absolutely. Here are all three pieces:
+
+1. a `route_seed()` classifier  
+2. a revised prompt builder using `core + extension_profile`  
+3. a second full worked example for `rebellion` using the `broadcast_media` extension family
+
+---
+
+# 1. `route_seed()` classifier
+
+The classifier’s job is to decide whether a seed should be treated as:
+
+- `core_paraphrase`
+- `core_repair`
+- `anchored_extension`
+- `skip`
+
+## Why 4 labels instead of 2
+
+You asked for core vs extension, but in practice a 4-way split works better:
+
+- **`core_paraphrase`**: seed is already source-faithful
+- **`core_repair`**: mostly source-faithful, but needs small cleanup
+- **`anchored_extension`**: coherent model extension
+- **`skip`**: incoherent or off-theme
+
+If you want only two runtime modes, you can map:
+
+- `core_paraphrase` + `core_repair` → core-mode prompt
+- `anchored_extension` → extension-mode prompt
+- `skip` → reject
+
+---
+
+## 1.1 Assumed model profile shape
+
+This classifier assumes a profile like:
+
+```json
+{
+  "model_name": "rebellion",
+  "core": {
+    "procedures": [...],
+    "variables": [...],
+    "breeds": [...],
+    "widgets": [...],
+    "model_summary": "..."
+  },
+  "extensions": {
+    "families": [
+      {
+        "name": "state_refinement",
+        "concepts": [...],
+        "identifiers": [...],
+        "rules": [...]
+      },
+      {
+        "name": "broadcast_media",
+        "concepts": [...],
+        "identifiers": [...],
+        "rules": [...]
+      }
+    ],
+    "framing_cues": [...],
+    "general_rules": [...]
+  }
+}
+```
+
+---
+
+## 1.2 Routing heuristics
+
+The classifier uses 4 kinds of signals:
+
+### A. Core support
+Does the seed mention core identifiers or core model concepts?
+
+For `rebellion`, examples:
+- `active?`
+- `grievance`
+- `government-legitimacy`
+- `vision`
+- `cops`
+- `jail-term`
+
+### B. Extension-family support
+Does the seed match one of the approved extension families?
+
+Examples:
+- “broadcast media” → `broadcast_media`
+- “state diagram”, “leader role” → `state_refinement`
+- “long-range links” → `long_range_links`
+
+### C. Explicit extension intent
+Words like:
+- add
+- extend
+- modify
+- introduce
+- layer
+- network
+- broadcast
+- long-range
+- optimize
+
+### D. Unknown unsupported terms
+If the seed contains lots of model-specific terms that are in neither core nor approved extensions, it may need skipping.
+
+---
+
+## 1.3 Python implementation
+
+```python
+import re
+from collections import Counter
+
+BACKTICK_RE = re.compile(r"`([^`]+)`")
+IDLIKE_RE = re.compile(r"\b[a-zA-Z][a-zA-Z0-9-]*\??\b")
+
+GLOBAL_EXTENSION_CUES = {
+    "add", "extend", "modify", "introduce", "layer", "network",
+    "broadcast", "media", "friends", "leader", "leaders",
+    "long-range", "small-world", "optimize", "optimization",
+    "5000-agent", "state", "diagram", "homophily", "cluster"
+}
+
+STOPWORDS = {
+    "the", "a", "an", "of", "to", "for", "in", "on", "at", "by", "with",
+    "and", "or", "is", "are", "was", "were", "be", "as", "from", "that",
+    "this", "these", "those", "it", "its", "their", "them", "what", "how",
+    "why", "when", "where", "which", "do", "does", "did", "can", "could",
+    "would", "should", "into", "about", "than", "then", "if", "we", "you",
+    "model", "netlogo"
+}
+
+def norm(s: str) -> str:
+    return re.sub(r"\s+", " ", s.strip().lower())
+
+def core_identifier_set(profile: dict) -> set:
+    core = profile["core"]
+    out = set()
+    for key in ["procedures", "variables", "breeds", "widgets"]:
+        for x in core.get(key, []):
+            out.add(norm(x))
+    return out
+
+def family_lookup(profile: dict):
+    fams = {}
+    for fam in profile.get("extensions", {}).get("families", []):
+        fams[fam["name"]] = {
+            "concepts": {norm(x) for x in fam.get("concepts", [])},
+            "identifiers": {norm(x) for x in fam.get("identifiers", [])},
+            "rules": fam.get("rules", [])
+        }
+    return fams
+
+def extract_terms(text: str) -> set:
+    text_n = norm(text)
+    terms = set()
+
+    for x in BACKTICK_RE.findall(text):
+        terms.add(norm(x))
+
+    for x in IDLIKE_RE.findall(text):
+        x = norm(x)
+        if x not in STOPWORDS:
+            terms.add(x)
+
+    return terms
+
+def count_phrase_hits(text: str, phrases: set) -> int:
+    t = norm(text)
+    hits = 0
+    for p in phrases:
+        if p and p in t:
+            hits += 1
+    return hits
+
+def has_extension_intent(text: str) -> bool:
+    terms = extract_terms(text)
+    return any(t in GLOBAL_EXTENSION_CUES for t in terms)
+
+def route_seed(seed_q: str, seed_a: str, profile: dict) -> dict:
+    text = f"{seed_q}\n{seed_a}"
+    text_n = norm(text)
+
+    core_ids = core_identifier_set(profile)
+    fams = family_lookup(profile)
+
+    terms = extract_terms(text)
+
+    core_hits = sorted([t for t in terms if t in core_ids])
+
+    family_scores = {}
+    family_matches = {}
+    for name, spec in fams.items():
+        id_hits = [t for t in terms if t in spec["identifiers"]]
+        concept_score = count_phrase_hits(text_n, spec["concepts"])
+        score = len(id_hits) + concept_score
+        family_scores[name] = score
+        family_matches[name] = {
+            "identifier_hits": sorted(id_hits),
+            "concept_score": concept_score
+        }
+
+    best_family = None
+    best_family_score = 0
+    if family_scores:
+        best_family = max(family_scores, key=family_scores.get)
+        best_family_score = family_scores[best_family]
+
+    approved_ext_ids = set()
+    for spec in fams.values():
+        approved_ext_ids |= spec["identifiers"]
+
+    unknown_terms = sorted([
+        t for t in terms
+        if t not in core_ids and t not in approved_ext_ids
+    ])
+
+    ext_intent = has_extension_intent(text)
+
+    # Route logic
+    if best_family_score >= 2 or (ext_intent and best_family_score >= 1):
+        route = "anchored_extension"
+        family = best_family
+    elif len(core_hits) >= 2 and not ext_intent and best_family_score == 0:
+        route = "core_paraphrase"
+        family = None
+    elif len(core_hits) >= 1 and best_family_score == 0:
+        route = "core_repair"
+        family = None
+    else:
+        route = "skip"
+        family = None
+
+    return {
+        "route": route,
+        "family": family,
+        "core_hits": core_hits[:25],
+        "best_family_score": best_family_score,
+        "family_scores": family_scores,
+        "family_matches": family_matches,
+        "extension_intent": ext_intent,
+        "unknown_terms_sample": unknown_terms[:25]
+    }
+```
+
+---
+
+## 1.4 Expected routing on your `rebellion` examples
+
+Here is how I would expect the classifier to behave.
+
+### `STE-GENERAL-NL-0175`
+“How can the Rebellion model exhibit phase transition-like behavior?”
+
+**Expected route**:
+- `core_paraphrase`
+
+Why:
+- core concepts: `government-legitimacy`, `vision`, `active?`, `estimated arrest probability`
+- no real extension family needed
+
+---
+
+### `STE-GENERAL-NL-0176`
+“What time series should I track to understand rebellion dynamics?”
+
+**Expected route**:
+- `core_paraphrase`
+
+Why:
+- tracks `active?`, `jail-term`, `grievance`
+- source-faithful analytical framing
+
+---
+
+### `STE-GENERAL-NL-2899`
+“How can early-warning indicators for large uprisings be studied...?”
+
+**Expected route**:
+- `core_repair`
+
+Why:
+- strongly core-grounded
+- but contains `estimated-risk`, which is not core and not an approved extension identifier
+
+This should not be skipped. It should be repaired.
+
+---
+
+### `STE-GENERAL-NL-6253`
+“How detailed should my state diagram be...?”
+
+**Expected route**:
+- `anchored_extension`
+- family: `state_refinement`
+
+---
+
+### `STE-GENERAL-NL-4153`
+“How do I add a broadcast media layer...?”
+
+**Expected route**:
+- `anchored_extension`
+- family: `broadcast_media`
+
+---
+
+### `STE-GENERAL-NL-0028`
+“neutral to sympathetic to active rebels... similar friends...”
+
+**Expected route**:
+- `anchored_extension`
+- family: likely `state_refinement` or `network_layer`
+
+---
+
+### `STE-GENERAL-NL-0029`
+“long-range links... sudden jump...”
+
+**Expected route**:
+- `anchored_extension`
+- family: `long_range_links`
+
+---
+
+### `STE-GENERAL-NL-221`
+“fast-track rebellion spread in 5000-agent network”
+
+**Expected route**:
+- `anchored_extension`
+- family: `large_scale_optimization`
+
+---
+
+# 2. Revised prompt builder using `core + extension_profile`
+
+The prompt builder should consume the routing decision and produce the right template.
+
+---
+
+## 2.1 Design
+
+We want one wrapper:
+
+- `build_prompt(route_result, seed, profile)`
+
+that dispatches to:
+
+- `build_core_prompt(...)`
+- `build_core_repair_prompt(...)`
+- `build_extension_prompt(...)`
+
+---
+
+## 2.2 Python implementation
+
+```python
+def comma_join(xs):
+    return ", ".join(xs)
+
+def render_core_block(profile: dict) -> str:
+    core = profile["core"]
+    return (
+        f"BASE MODEL SUMMARY:\n"
+        f"{core.get('model_summary', '')}\n\n"
+        f"CORE MODEL INVARIANTS:\n"
+        f"- procedures: {comma_join(core.get('procedures', []))}\n"
+        f"- variables: {comma_join(core.get('variables', []))}\n"
+        f"- breeds: {comma_join(core.get('breeds', []))}\n"
+        f"- widgets: {comma_join(core.get('widgets', []))}\n"
+    )
+
+def get_family(profile: dict, family_name: str) -> dict:
+    for fam in profile.get("extensions", {}).get("families", []):
+        if fam["name"] == family_name:
+            return fam
+    return {}
+
+def build_core_prompt(seed: dict, profile: dict) -> str:
+    return f"""
+You generate high-quality synthetic training data for NetLogo Q&A.
+
+Hard rules:
+- Output JSON only: {{"question": "...", "answer": "..."}}
+- No markdown fences, no preamble, no commentary.
+- Preserve technical correctness.
+- Use only source-faithful content from the original model.
+- Do not invent model-specific identifiers beyond the core invariant.
+- Backtick core identifiers when used as model-specific terms.
+
+Priority order:
+1. Core model correctness
+2. Preserve the seed's educational intent
+3. Stay close to the seed
+4. Style
+
+CONTEXT:
+- model_name: {seed["model_name"]}
+- level: {seed["level"]}
+- tier: {seed["tier"]}
+- mode: core_paraphrase
+
+Style:
+- scientific coaching
+- include exactly one hypothesis
+- include exactly one experiment
+- include exactly one limitation
+
+{render_core_block(profile)}
+
+TASK:
+Paraphrase the seed into a new natural variant while remaining faithful to the original model.
+
+SEED QUESTION:
+{seed["seed_q"]}
+
+SEED ANSWER:
+{seed["seed_a"]}
+
+OUTPUT:
+Return ONE JSON object only: {{"question": "...", "answer": "..."}}
+""".strip()
+
+def build_core_repair_prompt(seed: dict, profile: dict) -> str:
+    return f"""
+You generate high-quality synthetic training data for NetLogo Q&A.
+
+Hard rules:
+- Output JSON only: {{"question": "...", "answer": "..."}} or {{"skip":"SEED_CONFLICT"}}
+- No markdown fences, no preamble, no commentary.
+- Preserve technical correctness.
+- Use only source-faithful content from the original model.
+- If the seed contains unsupported identifiers or mechanisms, replace them with the nearest correct model-grounded formulation.
+- Do not invent model-specific identifiers beyond the core invariant.
+
+Priority order:
+1. Core model correctness
+2. Preserve as much of the seed's educational intent as possible
+3. Repair unsupported specificity
+4. Style
+
+CONTEXT:
+- model_name: {seed["model_name"]}
+- level: {seed["level"]}
+- tier: {seed["tier"]}
+- mode: core_repair
+
+Style:
+- scientific coaching
+- include exactly one hypothesis
+- include exactly one experiment
+- include exactly one limitation
+
+{render_core_block(profile)}
+
+TASK:
+Repair and rewrite the seed into the nearest technically correct source-faithful Q&A for the original model.
+Do not preserve unsupported identifiers literally.
+
+SEED QUESTION:
+{seed["seed_q"]}
+
+SEED ANSWER:
+{seed["seed_a"]}
+
+OUTPUT:
+Return ONE JSON object only:
+{{"question": "...", "answer": "..."}}
+or
+{{"skip":"SEED_CONFLICT"}}
+""".strip()
+
+def build_extension_prompt(seed: dict, profile: dict, family_name: str) -> str:
+    fam = get_family(profile, family_name)
+    ext_rules = profile.get("extensions", {}).get("general_rules", [])
+    fam_rules = fam.get("rules", [])
+    framing_cues = profile.get("extensions", {}).get("framing_cues", [])
+
+    return f"""
+You generate high-quality synthetic training data for NetLogo Q&A.
+
+Hard rules:
+- Output JSON only: {{"question": "...", "answer": "..."}}
+- No markdown fences, no preamble, no commentary.
+- Preserve technical correctness.
+- Distinguish clearly between the original model and proposed extensions.
+- Core identifiers may be backticked.
+- Extension identifiers may be backticked only if they are approved below.
+- Do not present extension identifiers as if they already exist in the original source code.
+
+Priority order:
+1. Technical correctness
+2. Preserve the seed's educational intent
+3. Stay anchored to the original model
+4. Style
+
+CONTEXT:
+- model_name: {seed["model_name"]}
+- level: {seed["level"]}
+- tier: {seed["tier"]}
+- mode: anchored_extension
+- extension_family: {family_name}
+
+Style:
+- scientific coaching
+- include exactly one hypothesis
+- include exactly one experiment
+- include exactly one limitation
+
+{render_core_block(profile)}
+
+ALLOWED EXTENSION FAMILY:
+- {family_name}
+
+ALLOWED EXTENSION CONCEPTS:
+- {comma_join(fam.get("concepts", []))}
+
+ALLOWED EXTENSION IDENTIFIERS:
+- {comma_join(fam.get("identifiers", []))}
+
+FAMILY RULES:
+- {"\n- ".join(fam_rules) if fam_rules else "None"}
+
+GENERAL EXTENSION RULES:
+- {"\n- ".join(ext_rules) if ext_rules else "None"}
+
+GOOD FRAMING CUES:
+- {"\n- ".join(framing_cues) if framing_cues else "None"}
+
+TASK:
+Create a natural variant of the seed that stays anchored to the original model while allowing a coherent extension in the approved family above.
+
+SEED QUESTION:
+{seed["seed_q"]}
+
+SEED ANSWER:
+{seed["seed_a"]}
+
+OUTPUT:
+Return ONE JSON object only: {{"question": "...", "answer": "..."}}
+""".strip()
+
+def build_prompt(seed: dict, profile: dict, route_result: dict) -> str:
+    route = route_result["route"]
+
+    if route == "core_paraphrase":
+        return build_core_prompt(seed, profile)
+    elif route == "core_repair":
+        return build_core_repair_prompt(seed, profile)
+    elif route == "anchored_extension":
+        return build_extension_prompt(seed, profile, route_result["family"])
+    else:
+        raise ValueError("Seed should be skipped; no prompt should be built.")
+```
+
+---
+
+## 2.3 Practical use
+
+Example:
+
+```python
+seed = {
+    "seed_id": "STE-GENERAL-NL-4153",
+    "class_id": 13,
+    "model_name": "rebellion",
+    "level": "L3",
+    "tier": "C",
+    "seed_type": "member_safe",
+    "seed_q": "How do I add a broadcast media layer that interacts with local networks in a NetLogo rebellion model?",
+    "seed_a": "..."
+}
+
+route_result = route_seed(seed["seed_q"], seed["seed_a"], rebellion_profile)
+
+if route_result["route"] != "skip":
+    prompt = build_prompt(seed, rebellion_profile, route_result)
+```
+
+---
+
+# 3. Second worked example for `rebellion`: `broadcast_media`
+
+Now here is the full extension-aware worked example using your real seed `STE-GENERAL-NL-4153`.
+
+---
+
+## 3.1 Seed
+
+```json
+{
+  "seed_id": "STE-GENERAL-NL-4153",
+  "class_id": 13,
+  "model_name": "rebellion",
+  "level": "L3",
+  "tier": "C",
+  "seed_type": "member_safe"
+}
+```
+
+**Question**:  
+How do I add a broadcast media layer that interacts with local networks in a NetLogo rebellion model?
+
+**Answer**:  
+To investigate the role of broadcast media in your rebellion model, we first need to clarify the mechanism: are you treating the media as a 'global patch' that updates all agents simultaneously, or as a high-degree node in an existing network? We will assume a global signal that affects every agent's grievance level independently of their social links.
+
+We can propose two competing hypotheses for how this affects rebellion dynamics:
+1. The Synchronization Hypothesis: Broadcast media acts as a 'common clock,' causing agents with similar thresholds to rebel simultaneously, leading to faster, more explosive global cascades compared to local-only networks.
+2. The Local-Damping Hypothesis: By providing a uniform signal, broadcast media washes out the high-intensity local clusters necessary for initial sparks, potentially requiring a much higher global grievance level to start a rebellion than a localized social network would.
+
+To test these, we must operationalize our variables. Define 'media-influence' (a slider from 0.0 to 1.0) and 'social-influence-weight'. Our primary metrics will be the 'Time-to-Critical-Mass' and the 'Spatial-Clustering-Index' of the rebels.
+
+In your Experimental Design, use BehaviorSpace to sweep 'media-influence' from 0 to 1 while holding 'network-density' constant. Ensure you run at least 50 replications per setting to account for stochastic seeding of agent positions.
+
+If the Synchronization Hypothesis is correct, you should see a sharp decrease in the variance of rebellion start times as media influence increases. If the Local-Damping Hypothesis holds, you might observe that while rebellions are larger when they happen, the 'media-influence' actually increases the average grievance threshold required for any rebellion to start at all.
+
+Note the limitations: this model assumes all agents 'trust' the broadcast equally. In reality, media effects are often mediated by existing social ties or individual skepticism, which this simple global variable ignores.
+
+How does the spatial distribution of your rebels change when you shift the balance from 100% social influence to 50% social and 50% broadcast media?
+
+---
+
+## 3.2 Routing result
+
+This should route as:
+
+```json
+{
+  "route": "anchored_extension",
+  "family": "broadcast_media"
+}
+```
+
+Why:
+- explicit extension intent: “add”
+- extension-family concepts: broadcast media, local networks, global signal, influence weights
+- still anchored to rebellion dynamics
+
+---
+
+## 3.3 Relevant `broadcast_media` family profile
+
+```json
+{
+  "name": "broadcast_media",
+  "concepts": [
+    "broadcast media",
+    "global signal",
+    "media influence",
+    "synchronization",
+    "media shock"
+  ],
+  "identifiers": [
+    "media-influence",
+    "social-influence-weight",
+    "media-signal",
+    "time-to-critical-mass",
+    "spatial-clustering-index"
+  ],
+  "rules": [
+    "Must be framed as an added global influence on grievance or activation.",
+    "Must not imply that broadcast media exists in the original code."
+  ]
+}
+```
+
+---
+
+## 3.4 Full prompt sent to the LLM
+
+Mode: `anchored_extension`  
+Family: `broadcast_media`
+
+```text
+You generate high-quality synthetic training data for NetLogo Q&A.
+
+Hard rules:
+- Output JSON only: {"question": "...", "answer": "..."}
+- No markdown fences, no preamble, no commentary.
+- Preserve technical correctness.
+- Distinguish clearly between the original model and proposed extensions.
+- Core identifiers may be backticked.
+- Extension identifiers may be backticked only if they are approved below.
+- Do not present extension identifiers as if they already exist in the original source code.
+
+Priority order:
+1. Technical correctness
+2. Preserve the seed's educational intent
+3. Stay anchored to the original model
+4. Style
+
+CONTEXT:
+- model_name: rebellion
+- level: L3
+- tier: C
+- mode: anchored_extension
+- extension_family: broadcast_media
+
+Style:
+- scientific coaching
+- include exactly one hypothesis
+- include exactly one experiment
+- include exactly one limitation
+
+BASE MODEL SUMMARY:
+The original rebellion model explains when agents become active based on grievance, risk aversion, and estimated arrest probability, while cops police local neighborhoods and assign jail terms.
+
+CORE MODEL INVARIANTS:
+- procedures: determine-behavior, display-agent, display-agent-2d, display-agent-3d, display-cop, enforce, estimated-arrest-probability, go, grievance, move, setup
+- variables: active?, jail-term, k, neighborhood, perceived-hardship, risk-aversion, threshold
+- breeds: agents, an-agent, cop, cops
+- widgets: government-legitimacy, initial-agent-density, initial-cop-density, max-jail-term, movement?, vision, visualization
+
+ALLOWED EXTENSION FAMILY:
+- broadcast_media
+
+ALLOWED EXTENSION CONCEPTS:
+- broadcast media, global signal, media influence, synchronization, media shock
+
+ALLOWED EXTENSION IDENTIFIERS:
+- media-influence, social-influence-weight, media-signal, time-to-critical-mass, spatial-clustering-index
+
+FAMILY RULES:
+- Must be framed as an added global influence on grievance or activation.
+- Must not imply that broadcast media exists in the original code.
+
+GENERAL EXTENSION RULES:
+- Extension content must remain anchored to rebellion dynamics.
+- At least one core identifier or clearly core concept should appear in every extension answer.
+- Do not present extension identifiers as original source-code elements unless they are in the core invariant.
+- Prefer minimal coherent extensions over broad redesigns.
+
+GOOD FRAMING CUES:
+- to extend the original model
+- one extension is
+- you could add
+- you could introduce
+- if you modify the model
+- in an extended version
+- beyond the original code
+
+TASK:
+Create a natural variant of the seed that stays anchored to the original model while allowing a coherent broadcast-media extension.
+
+SEED QUESTION:
+How do I add a broadcast media layer that interacts with local networks in a NetLogo rebellion model?
+
+SEED ANSWER:
+[full seed answer]
+
+OUTPUT:
+Return ONE JSON object only: {"question": "...", "answer": "..."}
+```
+
+---
+
+## 3.5 Example good LLM output
+
+```json
+{
+  "question": "How could I extend the rebellion model so a broadcast signal interacts with local unrest dynamics?",
+  "answer": "To extend the original `rebellion` model, you could introduce a global `media-signal` that shifts either `grievance` or the effective activation threshold used in `determine-behavior`, while still preserving local effects from `neighborhood`, `vision`, and `estimated-arrest-probability`. A useful hypothesis is that increasing `media-influence` will synchronize activation across distant `agents`, making outbreaks begin more simultaneously and reducing the model's dependence on purely local clustering. To test that, run BehaviorSpace experiments that vary `media-influence`, `social-influence-weight`, and `government-legitimacy`, then record both the share of `agents` with `active?` set to true and an added metric such as `time-to-critical-mass` or `spatial-clustering-index`. If the broadcast layer is driving synchronization, stronger media influence should compress the timing of rebellion onset even when local neighborhood conditions differ across space. One limitation is that this extension assumes agents respond to the broadcast in a relatively uniform way, whereas real audiences differ in trust, exposure, and interpretation."
+}
+```
+
+---
+
+## 3.6 Why this output should pass
+
+### Core anchoring
+It references real base-model elements:
+- `rebellion`
+- `grievance`
+- `determine-behavior`
+- `neighborhood`
+- `vision`
+- `estimated-arrest-probability`
+- `agents`
+- `government-legitimacy`
+- `active?`
+
+### Approved extension usage
+It uses allowed broadcast-media identifiers:
+- `media-signal`
+- `media-influence`
+- `social-influence-weight`
+- `time-to-critical-mass`
+- `spatial-clustering-index`
+
+### Proper framing
+It clearly marks them as additions:
+- “To extend the original model...”
+- “you could introduce...”
+- “added metric...”
+- “this extension assumes...”
+
+### Scientific structure
+It includes:
+- exactly one hypothesis
+- exactly one experiment
+- exactly one limitation
+
+---
+
+## 3.7 Validation walkthrough
+
+### Gate 1: similarity
+Should pass:
+- same topic neighborhood as the seed
+- same class family around rebellion dynamics and experiment design
+
+### Gate 2: identifier validation
+Backticked core identifiers:
+- `rebellion`
+- `grievance`
+- `determine-behavior`
+- `neighborhood`
+- `vision`
+- `estimated-arrest-probability`
+- `agents`
+- `government-legitimacy`
+- `active?`
+
+Backticked extension identifiers:
+- `media-signal`
+- `media-influence`
+- `social-influence-weight`
+- `time-to-critical-mass`
+- `spatial-clustering-index`
+
+All allowed in `anchored_extension` mode.
+
+### Gate 2b: framing validation
+Passes because the extension is explicitly marked as:
+- an extension
+- an introduced mechanism
+- not part of the original model
+
+### Gate 3: dedup
+Should pass if not too close to any previously accepted sample.
+
+---
+
+## 3.8 Example bad output for this same seed
+
+```json
+{
+  "question": "How does the rebellion model's built-in media layer interact with local protest behavior?",
+  "answer": "The model already includes a `media-influence` slider that directly controls `grievance` and synchronizes distant clusters."
+}
+```
+
+This should be rejected.
+
+### Why
+It falsely claims:
+- a built-in media layer
+- an existing `media-influence` slider
+
+But those are extension elements, not base-model elements.
+
+### Rejection code
+- `BASE_MODEL_MISREPRESENTATION`
+
+---
+
+# Final implementation summary
+
+## Routing
+Use `route_seed()` to classify:
+- core
+- core_repair
+- anchored_extension
+- skip
+
+## Prompting
+Use the route result to choose:
+- `build_core_prompt`
+- `build_core_repair_prompt`
+- `build_extension_prompt`
+
+## Validation
+Gate 2 must be mode-aware:
+- core mode → core identifiers only
+- extension mode → core + approved extension identifiers + framing requirement
+
+---
+
+# Recommended next move
+
+If you implement only three things next, make them these:
+
+1. **Add `family`-aware routing**
+2. **Make Gate 2 mode-aware**
+3. **Prompt only with the selected extension family, not all families at once**
+
+That will keep extension generations focused and much easier to validate.
+
+
+
+Below is a **mode-aware Gate 2 validator** in Python that matches the routing/prompt design above.
+
+It supports:
+
+- `core_paraphrase`
+- `core_repair`
+- `anchored_extension`
+
+and checks for:
+
+- unknown identifiers
+- unapproved extension identifiers
+- extension framing
+- base-model misrepresentation
+- insufficient anchoring to the original model
+- disallowed off-theme drift
+
+---
+
+# Mode-aware Gate 2 validator
+
+```python
+import re
+from typing import Dict, List, Set, Any
+
+
+BACKTICK_RE = re.compile(r"`([^`]+)`")
+WORD_RE = re.compile(r"\b[a-zA-Z][a-zA-Z0-9-]*\??\b")
+SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+
+STOPWORDS = {
+    "the", "a", "an", "of", "to", "for", "in", "on", "at", "by", "with",
+    "and", "or", "is", "are", "was", "were", "be", "as", "from", "that",
+    "this", "these", "those", "it", "its", "their", "them", "what", "how",
+    "why", "when", "where", "which", "do", "does", "did", "can", "could",
+    "would", "should", "into", "about", "than", "then", "if", "we", "you",
+    "your", "our", "they", "he", "she", "i", "my", "me", "his", "her",
+    "them", "also", "just", "not", "only", "very", "more", "less", "same",
+    "different", "new", "old", "model", "netlogo"
+}
+
+DEFAULT_GLOBAL_ALLOW = {
+    "ticks", "tick", "turtles", "patches", "links", "behaviorspace",
+    "monitor", "plot", "reporter", "button", "chooser", "slider",
+    "switch", "world", "agent", "agents", "ask", "count", "mean",
+    "sum", "min", "max", "distance", "with", "of", "one-of", "n-of",
+    "if", "ifelse", "let", "set"
+}
+
+
+def norm(s: str) -> str:
+    return re.sub(r"\s+", " ", s.strip().lower())
+
+
+def split_sentences(text: str) -> List[str]:
+    return [x.strip() for x in SENTENCE_SPLIT_RE.split(text) if x.strip()]
+
+
+def extract_backticked_identifiers(text: str) -> List[str]:
+    return [norm(x) for x in BACKTICK_RE.findall(text)]
+
+
+def extract_words(text: str) -> List[str]:
+    return [norm(x) for x in WORD_RE.findall(text)]
+
+
+def summary_keywords(summary: str) -> Set[str]:
+    kws = set()
+    for w in extract_words(summary):
+        if w not in STOPWORDS and len(w) >= 5:
+            kws.add(w)
+    return kws
+
+
+def build_core_identifier_set(core: Dict[str, Any]) -> Set[str]:
+    out = set()
+
+    for key in ["procedures", "variables", "breeds", "widgets"]:
+        for x in core.get(key, []):
+            out.add(norm(x))
+
+    return out
+
+
+def get_family(profile: Dict[str, Any], family_name: str) -> Dict[str, Any]:
+    for fam in profile.get("extensions", {}).get("families", []):
+        if fam.get("name") == family_name:
+            return fam
+    return {}
+
+
+def all_extension_identifiers(profile: Dict[str, Any]) -> Set[str]:
+    out = set()
+    for fam in profile.get("extensions", {}).get("families", []):
+        for x in fam.get("identifiers", []):
+            out.add(norm(x))
+    return out
+
+
+def family_identifier_set(profile: Dict[str, Any], family_name: str) -> Set[str]:
+    fam = get_family(profile, family_name)
+    return {norm(x) for x in fam.get("identifiers", [])}
+
+
+def all_extension_concepts(profile: Dict[str, Any]) -> Set[str]:
+    out = set()
+    for fam in profile.get("extensions", {}).get("families", []):
+        for x in fam.get("concepts", []):
+            out.add(norm(x))
+    return out
+
+
+def family_concept_set(profile: Dict[str, Any], family_name: str) -> Set[str]:
+    fam = get_family(profile, family_name)
+    return {norm(x) for x in fam.get("concepts", [])}
+
+
+def get_framing_cues(profile: Dict[str, Any]) -> Set[str]:
+    return {norm(x) for x in profile.get("extensions", {}).get("framing_cues", [])}
+
+
+def get_disallowed_themes(profile: Dict[str, Any]) -> Set[str]:
+    return {norm(x) for x in profile.get("extensions", {}).get("disallowed_unanchored_themes", [])}
+
+
+def contains_phrase(text: str, phrase: str) -> bool:
+    return norm(phrase) in norm(text)
+
+
+def find_present_phrases(text: str, phrases: Set[str]) -> List[str]:
+    t = norm(text)
+    hits = []
+    for p in phrases:
+        if p and p in t:
+            hits.append(p)
+    return sorted(set(hits))
+
+
+def has_extension_framing(answer: str, profile: Dict[str, Any]) -> bool:
+    a = norm(answer)
+    framing_cues = get_framing_cues(profile)
+
+    if any(cue in a for cue in framing_cues):
+        return True
+
+    # fallback generic cues
+    generic = [
+        "extend the original model",
+        "extend the model",
+        "you could add",
+        "you could introduce",
+        "one extension is",
+        "if you modify the model",
+        "in an extended version",
+        "beyond the original code",
+        "as an extension",
+        "replace the original",
+        "refine the original"
+    ]
+    return any(x in a for x in generic)
+
+
+def implies_base_model_contains_extensions(answer: str, used_extension_ids: Set[str]) -> List[str]:
+    """
+    Returns a list of extension identifiers that are misrepresented as already existing in the base model.
+    """
+    bad_hits = []
+    sentences = split_sentences(answer)
+
+    bad_cues = [
+        "the model already",
+        "the original model already",
+        "the base model already",
+        "already uses",
+        "already tracks",
+        "already contains",
+        "already includes",
+        "already has",
+        "the existing code",
+        "the original code",
+        "built-in",
+        "currently defined",
+        "is defined in the model",
+        "is tracked in the model",
+        "is in the original model",
+        "the model uses",
+        "the model tracks",
+        "the model contains",
+        "the model includes",
+        "the model has"
+    ]
+
+    safe_cues = [
+        "you could add",
+        "you could introduce",
+        "extend the model",
+        "extend the original model",
+        "in an extended version",
+        "as an extension",
+        "if you modify the model",
+        "not part of the original code",
+        "beyond the original code",
+        "replace the original"
+    ]
+
+    for sent in sentences:
+        s = norm(sent)
+        if any(safe in s for safe in safe_cues):
+            continue
+
+        for ext_id in used_extension_ids:
+            if ext_id in s and any(bad in s for bad in bad_cues):
+                bad_hits.append(ext_id)
+
+    return sorted(set(bad_hits))
+
+
+def has_core_anchor(text: str, core_ids: Set[str], model_summary: str) -> bool:
+    t = norm(text)
+
+    # Direct core-id anchor
+    for cid in core_ids:
+        if cid in t:
+            return True
+
+    # Explicit anchoring language
+    anchor_phrases = [
+        "original model",
+        "base model",
+        "original rebellion model",
+        "extend the original model",
+        "original code"
+    ]
+    if any(p in t for p in anchor_phrases):
+        return True
+
+    # Summary-keyword overlap
+    kws = summary_keywords(model_summary)
+    hits = [kw for kw in kws if kw in t]
+    return len(hits) >= 2
+
+
+def detect_disallowed_theme_hits(text: str, profile: Dict[str, Any]) -> List[str]:
+    disallowed = get_disallowed_themes(profile)
+    return find_present_phrases(text, disallowed)
+
+
+def detect_extension_concepts_in_core_mode(text: str, profile: Dict[str, Any]) -> List[str]:
+    all_concepts = all_extension_concepts(profile)
+    # Focus on exact extension concept phrases, not every single token
+    return find_present_phrases(text, all_concepts)
+
+
+def detect_cross_family_extension_ids(
+    used_extension_ids: Set[str],
+    profile: Dict[str, Any],
+    family_name: str
+) -> List[str]:
+    allowed = family_identifier_set(profile, family_name)
+    return sorted([x for x in used_extension_ids if x not in allowed])
+
+
+def validate_gate2(
+    question: str,
+    answer: str,
+    mode: str,
+    profile: Dict[str, Any],
+    family_name: str = None,
+    global_allow: Set[str] = None
+) -> Dict[str, Any]:
+    """
+    Mode-aware Gate 2 validator.
+
+    Parameters
+    ----------
+    question, answer : str
+        Generated QA content.
+    mode : str
+        One of: "core_paraphrase", "core_repair", "anchored_extension".
+    profile : dict
+        Model profile with "core" and optional "extensions".
+    family_name : str, optional
+        Required for focused anchored_extension validation.
+    global_allow : set, optional
+        Global NetLogo terms allowed in backticks.
+
+    Returns
+    -------
+    dict
+        Example:
+        {
+          "ok": True/False,
+          "reason": None or "CODE",
+          "details": {...}
+        }
+    """
+    if global_allow is None:
+        global_allow = DEFAULT_GLOBAL_ALLOW
+
+    text = f"{question}\n{answer}"
+    text_n = norm(text)
+
+    core = profile["core"]
+    core_ids = build_core_identifier_set(core)
+    ext_ids_all = all_extension_identifiers(profile)
+    summary = core.get("model_summary", "")
+
+    backticked = set(extract_backticked_identifiers(text))
+    used_core_ids = {x for x in backticked if x in core_ids}
+    used_ext_ids = {x for x in backticked if x in ext_ids_all}
+    unknown_ids = {
+        x for x in backticked
+        if x not in core_ids and x not in ext_ids_all and x not in global_allow
+    }
+
+    # 1) Hard unknown identifier check
+    if mode in {"core_paraphrase", "core_repair"}:
+        if unknown_ids:
+            return {
+                "ok": False,
+                "reason": "UNKNOWN_CORE_IDENTIFIER",
+                "details": {
+                    "unknown_identifiers": sorted(unknown_ids),
+                    "used_core_ids": sorted(used_core_ids),
+                    "used_extension_ids": sorted(used_ext_ids)
+                }
+            }
+
+        # In core mode, any extension identifier is disallowed
+        if used_ext_ids:
+            return {
+                "ok": False,
+                "reason": "UNAPPROVED_EXTENSION_IDENTIFIER",
+                "details": {
+                    "extension_identifiers_in_core_mode": sorted(used_ext_ids)
+                }
+            }
+
+        # Optional: catch exact extension concept phrases in plain text
+        ext_concept_hits = detect_extension_concepts_in_core_mode(text, profile)
+        if ext_concept_hits:
+            return {
+                "ok": False,
+                "reason": "EXTENSION_CONTENT_IN_CORE_MODE",
+                "details": {
+                    "extension_concept_hits": ext_concept_hits[:20]
+                }
+            }
+
+        disallowed_hits = detect_disallowed_theme_hits(text, profile)
+        if disallowed_hits:
+            return {
+                "ok": False,
+                "reason": "DISALLOWED_THEME",
+                "details": {
+                    "disallowed_hits": disallowed_hits
+                }
+            }
+
+        return {
+            "ok": True,
+            "reason": None,
+            "details": {
+                "used_core_ids": sorted(used_core_ids),
+                "used_extension_ids": []
+            }
+        }
+
+    elif mode == "anchored_extension":
+        if unknown_ids:
+            return {
+                "ok": False,
+                "reason": "UNAPPROVED_EXTENSION_IDENTIFIER",
+                "details": {
+                    "unknown_identifiers": sorted(unknown_ids),
+                    "used_core_ids": sorted(used_core_ids),
+                    "used_extension_ids": sorted(used_ext_ids)
+                }
+            }
+
+        # If family-specific validation is active, reject extension identifiers from other families
+        if family_name:
+            cross_family_ids = detect_cross_family_extension_ids(used_ext_ids, profile, family_name)
+            if cross_family_ids:
+                return {
+                    "ok": False,
+                    "reason": "CROSS_FAMILY_EXTENSION_IDENTIFIER",
+                    "details": {
+                        "family_name": family_name,
+                        "cross_family_extension_ids": cross_family_ids
+                    }
+                }
+
+        # If any extension IDs are used, require framing
+        if used_ext_ids and not has_extension_framing(answer, profile):
+            return {
+                "ok": False,
+                "reason": "EXTENSION_REQUIRES_FRAMING",
+                "details": {
+                    "used_extension_ids": sorted(used_ext_ids)
+                }
+            }
+
+        # Reject if extension IDs are falsely described as built-in to base model
+        misrep = implies_base_model_contains_extensions(answer, used_ext_ids)
+        if misrep:
+            return {
+                "ok": False,
+                "reason": "BASE_MODEL_MISREPRESENTATION",
+                "details": {
+                    "misrepresented_extension_ids": misrep
+                }
+            }
+
+        # Require some anchor to the original model
+        if not has_core_anchor(text_n, core_ids, summary):
+            return {
+                "ok": False,
+                "reason": "INSUFFICIENT_CORE_ANCHOR",
+                "details": {
+                    "used_core_ids": sorted(used_core_ids),
+                    "model_summary": summary
+                }
+            }
+
+        disallowed_hits = detect_disallowed_theme_hits(text, profile)
+        if disallowed_hits:
+            return {
+                "ok": False,
+                "reason": "DISALLOWED_THEME",
+                "details": {
+                    "disallowed_hits": disallowed_hits
+                }
+            }
+
+        return {
+            "ok": True,
+            "reason": None,
+            "details": {
+                "used_core_ids": sorted(used_core_ids),
+                "used_extension_ids": sorted(used_ext_ids),
+                "family_name": family_name
+            }
+        }
+
+    else:
+        return {
+            "ok": False,
+            "reason": "UNKNOWN_MODE",
+            "details": {"mode": mode}
+        }
+```
+
+---
+
+# Minimal `rebellion` profile for testing
+
+This is a compact profile compatible with the validator.
+
+```python
+rebellion_profile = {
+    "model_name": "rebellion",
+    "core": {
+        "procedures": [
+            "determine-behavior",
+            "display-agent",
+            "display-agent-2d",
+            "display-agent-3d",
+            "display-cop",
+            "enforce",
+            "estimated-arrest-probability",
+            "go",
+            "grievance",
+            "move",
+            "setup"
+        ],
+        "variables": [
+            "active?",
+            "jail-term",
+            "k",
+            "neighborhood",
+            "perceived-hardship",
+            "risk-aversion",
+            "threshold"
+        ],
+        "breeds": [
+            "agents",
+            "an-agent",
+            "cop",
+            "cops"
+        ],
+        "widgets": [
+            "government-legitimacy",
+            "initial-agent-density",
+            "initial-cop-density",
+            "max-jail-term",
+            "movement?",
+            "vision",
+            "visualization"
+        ],
+        "model_summary": (
+            "The original rebellion model explains when agents become active "
+            "based on grievance, risk aversion, and estimated arrest probability, "
+            "while cops police local neighborhoods and assign jail terms."
+        )
+    },
+    "extensions": {
+        "families": [
+            {
+                "name": "state_refinement",
+                "concepts": [
+                    "state diagram",
+                    "coarse-grained states",
+                    "fine-grained states",
+                    "sympathizer",
+                    "protester",
+                    "leader role",
+                    "state refinement"
+                ],
+                "identifiers": [
+                    "rebellion-state",
+                    "global-unrest-index",
+                    "time-to-peak-unrest",
+                    "initial-grievance",
+                    "population-density"
+                ]
+            },
+            {
+                "name": "broadcast_media",
+                "concepts": [
+                    "broadcast media",
+                    "global signal",
+                    "media influence",
+                    "synchronization",
+                    "media shock"
+                ],
+                "identifiers": [
+                    "media-influence",
+                    "social-influence-weight",
+                    "media-signal",
+                    "time-to-critical-mass",
+                    "spatial-clustering-index"
+                ]
+            },
+            {
+                "name": "network_layer",
+                "concepts": [
+                    "social network links",
+                    "similar friends",
+                    "network density",
+                    "homophily",
+                    "friend influence"
+                ],
+                "identifiers": [
+                    "homophily-index",
+                    "global-rebellion-rate",
+                    "network-density",
+                    "rebel-friends-count",
+                    "social-link-weight"
+                ]
+            }
+        ],
+        "framing_cues": [
+            "to extend the original model",
+            "extend the model",
+            "you could add",
+            "you could introduce",
+            "if you modify the model",
+            "in an extended version",
+            "beyond the original code",
+            "as an extension"
+        ],
+        "disallowed_unanchored_themes": [
+            "quantum mechanics",
+            "genetics",
+            "financial derivatives",
+            "cosmology"
+        ]
+    }
+}
+```
+
+---
+
+# Example 1: good `broadcast_media` extension should pass
+
+```python
+good_q = "How could I extend the rebellion model so a broadcast signal interacts with local unrest dynamics?"
+
+good_a = (
+    "To extend the original `rebellion` model, you could introduce a global "
+    "`media-signal` that shifts either `grievance` or the effective activation "
+    "threshold used in `determine-behavior`, while still preserving local effects "
+    "from `neighborhood`, `vision`, and `estimated-arrest-probability`. "
+    "A useful hypothesis is that increasing `media-influence` will synchronize "
+    "activation across distant `agents`, making outbreaks begin more simultaneously. "
+    "To test that, run BehaviorSpace experiments that vary `media-influence`, "
+    "`social-influence-weight`, and `government-legitimacy`, then record the share "
+    "of `agents` with `active?` set to true and an added metric such as "
+    "`time-to-critical-mass` or `spatial-clustering-index`. "
+    "One limitation is that this extension assumes agents respond to the broadcast "
+    "in a relatively uniform way."
+)
+
+print(validate_gate2(
+    good_q,
+    good_a,
+    mode="anchored_extension",
+    profile=rebellion_profile,
+    family_name="broadcast_media"
+))
+```
+
+Expected result:
+
+```python
+{
+  'ok': True,
+  'reason': None,
+  'details': {
+    'used_core_ids': [...],
+    'used_extension_ids': [...],
+    'family_name': 'broadcast_media'
+  }
+}
+```
+
+---
+
+# Example 2: bad `broadcast_media` extension should fail
+
+```python
+bad_q = "How does the rebellion model's built-in media layer interact with local protest behavior?"
+
+bad_a = (
+    "The model already includes a `media-influence` slider that directly controls "
+    "`grievance` and synchronizes distant clusters."
+)
+
+print(validate_gate2(
+    bad_q,
+    bad_a,
+    mode="anchored_extension",
+    profile=rebellion_profile,
+    family_name="broadcast_media"
+))
+```
+
+Expected result:
+
+```python
+{
+  'ok': False,
+  'reason': 'BASE_MODEL_MISREPRESENTATION',
+  'details': {
+    'misrepresented_extension_ids': ['media-influence']
+  }
+}
+```
+
+---
+
+# Example 3: core answer should pass
+
+```python
+core_q = "How does the rebellion model decide whether agents become active?"
+
+core_a = (
+    "The decision is made through `determine-behavior`, where an agent becomes "
+    "active when `grievance` minus `risk-aversion` times "
+    "`estimated-arrest-probability` exceeds `threshold`. "
+    "A useful hypothesis is that lowering `government-legitimacy` increases the "
+    "share of `agents` with `active?` set to true. "
+    "You could test that in BehaviorSpace by sweeping `government-legitimacy` and "
+    "`vision`. One limitation is that the model relies on local information in each "
+    "`neighborhood`."
+)
+
+print(validate_gate2(
+    core_q,
+    core_a,
+    mode="core_paraphrase",
+    profile=rebellion_profile
+))
+```
+
+Expected result: pass.
+
+---
+
+# Example 4: extension content in core mode should fail
+
+```python
+wrong_mode_q = "How can the rebellion model use a media layer?"
+wrong_mode_a = (
+    "Add `media-influence` and `media-signal` so agents synchronize across space."
+)
+
+print(validate_gate2(
+    wrong_mode_q,
+    wrong_mode_a,
+    mode="core_paraphrase",
+    profile=rebellion_profile
+))
+```
+
+Expected result: fail with:
+
+- `UNAPPROVED_EXTENSION_IDENTIFIER`
+or
+- `EXTENSION_CONTENT_IN_CORE_MODE`
+
+depending on whether those terms are backticked and/or plain.
+
+---
+
+# How to integrate this into your pipeline
+
+Use it right after parsing the LLM response JSON.
+
+## Example integration
+
+```python
+def run_gate2(parsed_obj, route_result, profile):
+    question = parsed_obj["question"]
+    answer = parsed_obj["answer"]
+    mode = route_result["route"]
+
+    # map core_repair to same validator mode logic
+    if mode == "core_repair":
+        mode_for_validator = "core_repair"
+        family_name = None
+    elif mode == "core_paraphrase":
+        mode_for_validator = "core_paraphrase"
+        family_name = None
+    elif mode == "anchored_extension":
+        mode_for_validator = "anchored_extension"
+        family_name = route_result.get("family")
+    else:
+        return {
+            "ok": False,
+            "reason": "UNEXPECTED_ROUTE_FOR_GATE2",
+            "details": {"route": mode}
+        }
+
+    return validate_gate2(
+        question=question,
+        answer=answer,
+        mode=mode_for_validator,
+        profile=profile,
+        family_name=family_name
+    )
+```
+
+---
+
+# Recommended practical tweak
+
+One good refinement is to store generation metadata alongside each sample:
+
+```json
+{
+  "seed_id": "STE-GENERAL-NL-4153",
+  "mode": "anchored_extension",
+  "family": "broadcast_media",
+  "model_name": "rebellion"
+}
+```
+
+Then Gate 2 can validate against the exact intended mode/family instead of trying to infer it later.
+
+---
+
+# One caution
+
+This validator is intentionally **conservative on backticked identifiers** and **lighter on plain-English concept policing**.
+
+That is a good default because:
+
+- backticks are where your LLM most often makes concrete false claims
+- plain-English concept policing can become over-aggressive and reject good scientific language
+
+If you later want stricter concept checks, add them gradually and only after reviewing false rejects.
+
+---
+
+
+1. a **fully integrated end-to-end pipeline sketch**: routing → prompt → parse → gate2 → dedup, or  
+2. a **parser plan for extracting `core` invariants automatically from `.nlogo` files**.
+
+Great. Here is a concrete consolidated layout for the extension-aware pipeline, with suggested modules, function signatures, and how they fit into your current codebase.
+
+---
+
+# 1. Proposed file layout
+
+You can either create a new package, or fold this into `qa_system_v2bis`. I’d suggest a clean new subtree under `qa_system_v2bis/synthetic_v2/`.
+
+```text
+qa_system_v2bis/
+  synthetic_v2/
+    __init__.py
+
+    # A. profile building
+    build_model_profiles.py
+    nlogo_parser.py
+    interface_parser.py
+    corpus_audit.py
+    extension_profile_builder.py
+
+    # B. routing + prompting
+    routing.py
+    prompt_builder.py
+    prompt_templates.py
+
+    # C. validation
+    gate1_embedding.py
+    gate2_model_validation.py
+    gate3_dedup.py
+
+    # D. orchestration
+    run_synthetic_v2.py
+    batch_scheduler.py
+    telemetry.py
+
+    # E. shared helpers
+    schemas.py
+    io_utils.py
+    text_utils.py
+```
+
+---
+
+# 2. Artifact layout
+
+These are the files the pipeline should read and write.
+
+```text
+artifacts/
+  model_profiles/
+    core_profiles.json
+    extension_profiles.json
+    model_profiles_merged.json
+
+  audit/
+    per_model/
+      rebellion.json
+      shepherds.json
+      ...
+    summary.json
+
+  routing/
+    seed_routes.jsonl
+
+  synthetic/
+    accepted.jsonl
+    rejected.jsonl
+    telemetry.jsonl
+```
+
+If you want fewer files, just store everything in one:
+
+- `model_profiles_merged.json`
+
+---
+
+# 3. Data contracts
+
+Before the modules, define the record shapes clearly.
+
+---
+
+## 3.1 Seed record
+
+```python
+SeedRecord = {
+    "seed_id": str,
+    "class_id": int,
+    "model_name": str,
+    "level": str,
+    "tier": str,
+    "seed_type": str,
+    "seed_q": str,
+    "seed_a": str
+}
+```
+
+---
+
+## 3.2 Route result
+
+```python
+RouteResult = {
+    "route": "core_paraphrase" | "core_repair" | "anchored_extension" | "skip",
+    "family": str | None,
+    "core_hits": list[str],
+    "best_family_score": int,
+    "family_scores": dict[str, int],
+    "family_matches": dict[str, dict],
+    "extension_intent": bool,
+    "unknown_terms_sample": list[str]
+}
+```
+
+---
+
+## 3.3 Model profile
+
+```python
+ModelProfile = {
+    "model_name": str,
+    "core": {
+        "procedures": list[str],
+        "variables": list[str],
+        "breeds": list[str],
+        "widgets": list[str],
+        "model_summary": str
+    },
+    "extensions": {
+        "families": list[{
+            "name": str,
+            "concepts": list[str],
+            "identifiers": list[str],
+            "rules": list[str]
+        }],
+        "general_rules": list[str],
+        "framing_cues": list[str],
+        "disallowed_unanchored_themes": list[str]
+    }
+}
+```
+
+---
+
+## 3.4 Accepted record
+
+```python
+AcceptedRecord = {
+    "seed_id": str,
+    "model_name": str,
+    "class_id": int,
+    "level": str,
+    "tier": str,
+    "route_mode": str,
+    "extension_family": str | None,
+    "question": str,
+    "answer": str,
+    "gate1": dict,
+    "gate2": dict,
+    "gate3": dict
+}
+```
+
+---
+
+## 3.5 Rejected record
+
+```python
+RejectedRecord = {
+    "seed_id": str,
+    "model_name": str,
+    "class_id": int,
+    "level": str,
+    "tier": str,
+    "route_mode": str | None,
+    "extension_family": str | None,
+    "reason": str,
+    "details": dict
+}
+```
+
+---
+
+# 4. Module-by-module design
+
+---
+
+# A. Profile building
+
+---
+
+## 4.1 `nlogo_parser.py`
+
+Purpose:
+- parse `.nlogo` source code
+- extract core identifiers
+
+### Suggested functions
+
+```python
+def split_nlogo_sections(text: str) -> dict:
+    """Return {'code': str, 'interface': str, 'info': str, 'extra': list[str]}."""
+
+def strip_netlogo_comments(code: str) -> str:
+    """Remove ; comments while preserving quoted strings."""
+
+def extract_core_from_code(code: str) -> dict:
+    """
+    Return:
+    {
+      'procedures': [...],
+      'breeds': [...],
+      'variables': [...],
+      'globals': [...],
+      'turtles_own': [...],
+      'patches_own': [...],
+      'links_own': [...],
+      'breed_own': {...},
+      'string_literals': [...]
+    }
+    """
+
+def all_identifiers_in_code(code: str) -> list[str]:
+    """Return all identifier-like tokens seen in code."""
+```
+
+---
+
+## 4.2 `interface_parser.py`
+
+Purpose:
+- parse Interface tab
+- recover widget names
+
+### Suggested functions
+
+```python
+def split_interface_blocks(interface_text: str) -> list[list[str]]:
+    """Split interface text into widget blocks."""
+
+def extract_widgets_from_interface(interface_text: str) -> list[str]:
+    """Heuristic widget extraction from Interface section."""
+
+def infer_candidate_widgets(code: str, extracted_core: dict, netlogo_primitives: set[str]) -> list[str]:
+    """Infer likely interface globals referenced in code but not declared elsewhere."""
+
+def merge_widget_sets(interface_widgets: list[str], inferred_widgets: list[str]) -> list[str]:
+    """Return sorted union."""
+```
+
+---
+
+## 4.3 `build_model_profiles.py`
+
+Purpose:
+- orchestrate parsing of all 31 models
+- build `core_profiles.json`
+
+### Suggested functions
+
+```python
+def parse_nlogo_file(path: str, model_name: str | None = None) -> dict:
+    """
+    Return a single core profile:
+    {
+      'model_name': ...,
+      'core': {...},
+      'raw_parse': {...}
+    }
+    """
+
+def build_core_profiles(model_dir: str) -> dict:
+    """Parse all .nlogo files under model_dir and return {model_name: profile}."""
+
+def save_core_profiles(core_profiles: dict, out_path: str) -> None:
+    """Write JSON."""
+```
+
+### CLI
+
+```python
+def main():
+    """
+    Example:
+    python -m qa_system_v2bis.synthetic_v2.build_model_profiles \
+      --model-dir models/ \
+      --out artifacts/model_profiles/core_profiles.json
+    """
+```
+
+---
+
+## 4.4 `corpus_audit.py`
+
+Purpose:
+- analyze seeds + corpus by `model_name`
+- compare against source-derived core profiles
+- identify:
+  - parser misses
+  - extension candidates
+  - unsupported drift
+
+### Suggested functions
+
+```python
+def load_records_jsonl(path: str) -> list[dict]:
+    """Load corpus/seeds/rejections in normalized form."""
+
+def group_records_by_model(records: list[dict]) -> dict[str, list[dict]]:
+    """Group records by model_name."""
+
+def audit_model_records(model_name: str, records: list[dict], core_profile: dict) -> dict:
+    """
+    Return:
+    {
+      'top_supported_terms': [...],
+      'top_unsupported_terms': [...],
+      'top_phrase_candidates': [...],
+      'parser_miss_candidates': [...]
+    }
+    """
+
+def build_audit_reports(core_profiles: dict, records: list[dict]) -> dict:
+    """Return per-model audit reports."""
+```
+
+---
+
+## 4.5 `extension_profile_builder.py`
+
+Purpose:
+- create approved extension families per model
+- start with audit reports + optionally hand-curated YAML/JSON
+- write `extension_profiles.json`
+
+I strongly recommend keeping this partly curated.
+
+### Suggested functions
+
+```python
+def load_manual_extension_specs(path: str) -> dict:
+    """Load human-edited extension family specs."""
+
+def build_extension_profiles(audit_reports: dict, manual_specs: dict) -> dict:
+    """Merge audit evidence with curated family definitions."""
+
+def merge_core_and_extension_profiles(core_profiles: dict, extension_profiles: dict) -> dict:
+    """Return final model_profiles_merged.json."""
+```
+
+---
+
+# B. Routing + prompting
+
+---
+
+## 4.6 `routing.py`
+
+Purpose:
+- classify each seed into:
+  - `core_paraphrase`
+  - `core_repair`
+  - `anchored_extension`
+  - `skip`
+
+### Suggested functions
+
+```python
+def extract_terms(text: str) -> set[str]:
+    """Extract identifier-like and keyword-like terms."""
+
+def core_identifier_set(profile: dict) -> set[str]:
+    """Return set of core identifiers."""
+
+def family_lookup(profile: dict) -> dict[str, dict]:
+    """Return family name -> spec."""
+
+def route_seed(seed_q: str, seed_a: str, profile: dict) -> dict:
+    """Return RouteResult."""
+
+def route_seed_record(seed: dict, profile: dict) -> dict:
+    """Convenience wrapper for one seed record."""
+
+def route_all_seeds(seeds: list[dict], model_profiles: dict) -> list[dict]:
+    """Return list of seed records with route metadata attached."""
+```
+
+### CLI
+
+```python
+def main():
+    """
+    Example:
+    python -m qa_system_v2bis.synthetic_v2.routing \
+      --seeds synth_plan_with_text.jsonl \
+      --profiles artifacts/model_profiles/model_profiles_merged.json \
+      --out artifacts/routing/seed_routes.jsonl
+    """
+```
+
+---
+
+## 4.7 `prompt_templates.py`
+
+Purpose:
+- keep prompt skeletons as functions or raw templates
+
+### Suggested functions
+
+```python
+def render_core_block(profile: dict) -> str:
+    """Render summary + core invariants."""
+
+def render_extension_block(profile: dict, family_name: str) -> str:
+    """Render selected extension family block."""
+
+def core_paraphrase_template(...) -> str:
+    """Return full prompt string."""
+
+def core_repair_template(...) -> str:
+    """Return full prompt string."""
+
+def anchored_extension_template(...) -> str:
+    """Return full prompt string."""
+```
+
+---
+
+## 4.8 `prompt_builder.py`
+
+Purpose:
+- consume route result + seed + profile
+- choose correct template
+
+### Suggested functions
+
+```python
+def build_core_prompt(seed: dict, profile: dict) -> str:
+    """Strict source-faithful prompt."""
+
+def build_core_repair_prompt(seed: dict, profile: dict) -> str:
+    """Repair unsupported specifics into source-faithful content."""
+
+def build_extension_prompt(seed: dict, profile: dict, family_name: str) -> str:
+    """Extension-aware prompt limited to one family."""
+
+def build_prompt(seed: dict, profile: dict, route_result: dict) -> str:
+    """Dispatcher."""
+```
+
+---
+
+# C. Validation
+
+---
+
+## 4.9 `gate1_embedding.py`
+
+Purpose:
+- semantic neighborhood validation against class embeddings
+
+### Suggested functions
+
+```python
+def embed_text(text: str, embed_client) -> list[float]:
+    """Embed question text."""
+
+def search_best_neighbor(vec, faiss_index, metadata) -> dict:
+    """Return nearest representative/class metadata."""
+
+def run_gate1_embedding(question: str, class_id: int, embedding_index) -> dict:
+    """Return {'ok': bool, 'reason': ..., ...}."""
+```
+
+---
+
+## 4.10 `gate2_model_validation.py`
+
+Purpose:
+- mode-aware model/profile validation
+
+This is the validator I drafted earlier.
+
+### Suggested functions
+
+```python
+def extract_backticked_identifiers(text: str) -> list[str]:
+    """Return normalized backticked identifiers."""
+
+def validate_gate2(
+    question: str,
+    answer: str,
+    mode: str,
+    profile: dict,
+    family_name: str | None = None,
+    global_allow: set[str] | None = None
+) -> dict:
+    """Mode-aware Gate 2."""
+```
+
+Optional helper functions:
+
+```python
+def has_extension_framing(answer: str, profile: dict) -> bool:
+    ...
+
+def implies_base_model_contains_extensions(answer: str, used_extension_ids: set[str]) -> list[str]:
+    ...
+
+def has_core_anchor(text: str, core_ids: set[str], model_summary: str) -> bool:
+    ...
+```
+
+---
+
+## 4.11 `gate3_dedup.py`
+
+Purpose:
+- exact QA dedup
+- question-only dedup
+- near-dup cosine check
+
+### Suggested functions
+
+```python
+def normalize_text(text: str) -> str:
+    """Normalization for hashes."""
+
+def qa_hash(question: str, answer: str) -> str:
+    """SHA1 of normalized QA."""
+
+def q_hash(question: str) -> str:
+    """SHA1 of normalized Q."""
+
+class DedupIndex:
+    def has_qa_hash(self, h: str) -> bool: ...
+    def has_q_hash(self, h: str) -> bool: ...
+    def max_question_similarity(self, question: str) -> float: ...
+    def add(self, accepted_record: dict) -> None: ...
+
+def run_gate3_dedup(question: str, answer: str, dedup_index: DedupIndex) -> dict:
+    """Return {'ok': bool, 'reason': ...}."""
+```
+
+---
+
+# D. Orchestration
+
+---
+
+## 4.12 `batch_scheduler.py`
+
+Purpose:
+- choose which seeds to send next
+- apply quotas by:
+  - model
+  - class
+  - route_mode
+  - extension_family
+
+### Suggested functions
+
+```python
+def plan_batches(
+    routed_seeds: list[dict],
+    target_total: int,
+    quotas: dict
+) -> list[dict]:
+    """Return scheduled generation tasks."""
+
+def sample_next_task(task_pool: list[dict], telemetry: dict) -> dict:
+    """Adaptive task selection based on acceptance rates."""
+```
+
+---
+
+## 4.13 `telemetry.py`
+
+Purpose:
+- aggregate acceptance/rejection reasons
+- support adaptive scheduling
+
+### Suggested functions
+
+```python
+def record_attempt(telemetry_store, event: dict) -> None:
+    """Append telemetry row."""
+
+def summarize_telemetry(events: list[dict]) -> dict:
+    """Aggregate by model/class/mode/family."""
+
+def rejection_breakdown(events: list[dict]) -> dict:
+    """Reason counts."""
+```
+
+---
+
+## 4.14 `run_synthetic_v2.py`
+
+Purpose:
+- main entry point
+- route → prompt → LLM → gates → write results
+
+### Suggested functions
+
+```python
+def parse_llm_json(raw: str) -> dict:
+    """Validate LLM JSON output."""
+
+def accept_record(record: dict) -> dict:
+    """Wrap accepted result."""
+
+def reject_record(seed: dict, reason: str, details: dict) -> dict:
+    """Wrap rejected result."""
+
+def process_seed(
+    seed: dict,
+    model_profiles: dict,
+    llm_client,
+    embedding_index,
+    dedup_index
+) -> dict:
+    """One complete generation attempt."""
+
+def generate_synthetic(
+    seeds: list[dict],
+    model_profiles: dict,
+    llm_client,
+    embedding_index,
+    dedup_index,
+    writer_accept,
+    writer_reject
+) -> dict:
+    """Loop over scheduled tasks and return summary stats."""
+```
+
+### CLI
+
+```python
+def main():
+    """
+    Example:
+    python -m qa_system_v2bis.synthetic_v2.run_synthetic_v2 \
+      --seeds artifacts/routing/seed_routes.jsonl \
+      --profiles artifacts/model_profiles/model_profiles_merged.json \
+      --accepted artifacts/synthetic/accepted.jsonl \
+      --rejected artifacts/synthetic/rejected.jsonl
+    """
+```
+
+---
+
+# E. Shared helpers
+
+---
+
+## 4.15 `schemas.py`
+
+Purpose:
+- central place for record schemas / typed dicts / pydantic models if desired
+
+### Suggested contents
+
+```python
+from typing import TypedDict, Optional, List, Dict, Any
+
+class SeedRecord(TypedDict):
+    seed_id: str
+    class_id: int
+    model_name: str
+    level: str
+    tier: str
+    seed_type: str
+    seed_q: str
+    seed_a: str
+
+class RouteResult(TypedDict, total=False):
+    route: str
+    family: Optional[str]
+    core_hits: List[str]
+    best_family_score: int
+    family_scores: Dict[str, int]
+    family_matches: Dict[str, Any]
+    extension_intent: bool
+    unknown_terms_sample: List[str]
+```
+
+If you don’t want typing overhead, skip this.
+
+---
+
+## 4.16 `io_utils.py`
+
+Purpose:
+- JSON / JSONL utilities
+
+### Suggested functions
+
+```python
+def load_json(path: str) -> dict:
+    ...
+
+def save_json(obj: dict, path: str) -> None:
+    ...
+
+def load_jsonl(path: str) -> list[dict]:
+    ...
+
+def append_jsonl(path: str, row: dict) -> None:
+    ...
+```
+
+---
+
+## 4.17 `text_utils.py`
+
+Purpose:
+- normalization helpers used across modules
+
+### Suggested functions
+
+```python
+def norm(s: str) -> str:
+    ...
+
+def normalize_text(text: str) -> str:
+    ...
+
+def comma_join(xs: list[str]) -> str:
+    ...
+```
+
+---
+
+# 5. Suggested end-to-end command flow
+
+This is how I’d run the full pipeline.
+
+---
+
+## Step 1. Build source-derived core profiles
+
+```bash
+python -m qa_system_v2bis.synthetic_v2.build_model_profiles \
+  --model-dir path/to/netlogo_models \
+  --out artifacts/model_profiles/core_profiles.json
+```
+
+---
+
+## Step 2. Audit seeds/corpus by model
+
+First normalize your corpus and seeds into one JSONL if needed.
+
+```bash
+python -m qa_system_v2bis.synthetic_v2.corpus_audit \
+  --profiles artifacts/model_profiles/core_profiles.json \
+  --records path/to/all_records.jsonl \
+  --out-dir artifacts/audit/per_model
+```
+
+---
+
+## Step 3. Build extension profiles
+
+```bash
+python -m qa_system_v2bis.synthetic_v2.extension_profile_builder \
+  --core artifacts/model_profiles/core_profiles.json \
+  --audit artifacts/audit/per_model/_all_models.json \
+  --manual path/to/manual_extension_specs.json \
+  --out artifacts/model_profiles/model_profiles_merged.json
+```
+
+---
+
+## Step 4. Route seeds
+
+```bash
+python -m qa_system_v2bis.synthetic_v2.routing \
+  --seeds path/to/seeds_with_text.jsonl \
+  --profiles artifacts/model_profiles/model_profiles_merged.json \
+  --out artifacts/routing/seed_routes.jsonl
+```
+
+---
+
+## Step 5. Run generation
+
+```bash
+python -m qa_system_v2bis.synthetic_v2.run_synthetic_v2 \
+  --seeds artifacts/routing/seed_routes.jsonl \
+  --profiles artifacts/model_profiles/model_profiles_merged.json \
+  --accepted artifacts/synthetic/accepted.jsonl \
+  --rejected artifacts/synthetic/rejected.jsonl
+```
+
+---
+
+# 6. How this maps to your existing codebase
+
+You already have:
+
+- `run_500k_synthetic.py`
+- `prompting_canonical.py`
+- `acceptance_gating.py`
+- `invariants_check.py`
+- `dedup.py`
+- `task_planner.py`
+
+You do not have to replace all of it.
+
+You can map the new design onto those files like this:
+
+---
+
+## Current → proposed mapping
+
+### `qa_system_v2bis/scripts/run_500k_synthetic.py`
+Add:
+- route loading
+- profile loading
+- mode/family metadata
+- extension-aware prompt selection
+
+### `qa_system_v2bis/homotopy_search/prompting_canonical.py`
+Split or extend to support:
+- `core_paraphrase`
+- `core_repair`
+- `anchored_extension`
+
+### `qa_system_v2bis/homotopy_search/acceptance_gating.py`
+Keep Gate 1 here.
+
+### `qa_system_v2bis/synthetic/invariants_check.py`
+Replace or extend with:
+- `validate_gate2(...)`
+- mode-aware core vs extension logic
+
+### `qa_system_v2bis/synthetic/dedup.py`
+Keep as Gate 3.
+
+### `qa_system_v2bis/synthetic_gen/task_planner.py`
+Add route-aware planning:
+- quotas by route and family
+
+---
+
+# 7. Minimal migration plan
+
+If you want the fastest safe transition, do it in 4 steps.
+
+---
+
+## Phase 1: Add routing only
+Create:
+- `routing.py`
+- `model_profiles_merged.json`
+
+Use routing results only for diagnostics at first.
+
+---
+
+## Phase 2: Add extension prompt mode
+Modify prompt builder so it can generate:
+- core prompts
+- extension prompts
+
+Still keep old Gate 2 temporarily if needed.
+
+---
+
+## Phase 3: Replace Gate 2
+Switch from:
+- strict source-only identifier whitelist
+
+to:
+- mode-aware core/extension validation
+
+---
+
+## Phase 4: Add quotas by family
+Prevent overproduction of one easy extension family.
+
+---
+
+# 8. Recommended quota structure for 500k
+
+Since your target is large, I’d track quotas at these levels:
+
+```python
+quotas = {
+    "by_model": {
+        "rebellion": 20000,
+        "shepherds": 15000
+    },
+    "by_mode": {
+        "core_paraphrase": 0.30,
+        "core_repair": 0.15,
+        "anchored_extension": 0.55
+    },
+    "by_extension_family": {
+        "state_refinement": 0.15,
+        "broadcast_media": 0.10,
+        "network_layer": 0.10,
+        "long_range_links": 0.10,
+        "large_scale_optimization": 0.05,
+        "early_warning_metrics": 0.05
+    }
+}
+```
+
+The exact numbers don’t matter yet. The main point is:
+- don’t let one family dominate
+- don’t let one easy model dominate
+
+---
+
+# 9. Strong recommendation on testing
+
+Before running the full 500k plan, run this sequence:
+
+## Unit tests
+- parser tests on 3–5 models
+- routing tests on 20 known seeds
+- gate2 tests on known pass/fail examples
+
+## Small generation pilot
+- 500 examples
+- then 5k examples
+- inspect rejection breakdown
+
+Only then scale.
+
+---
+
+# 10. Best first deliverables to implement
+
+If you want the shortest path to a working v2, build these in order:
+
+1. `model_profiles_merged.json`
+2. `routing.py`
+3. `prompt_builder.py`
+4. `gate2_model_validation.py`
+5. integrate into `run_500k_synthetic.py`
+
+That will already solve the main contradiction in the current system.
+
+---
+

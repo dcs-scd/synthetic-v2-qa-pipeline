@@ -1,0 +1,2205 @@
+The main problem is not just “bad prompting.” In your worked example, the system is asking the LLM to do something impossible:
+
+- stay semantically equivalent to the seed
+- remain technically correct for `shepherds`
+- obey a strict identifier whitelist
+
+But the seed itself appears incompatible with the model invariant.
+
+## Why this example fails
+
+Your seed is about:
+
+- sheepdog **states**
+- `state`
+- “patrolling”, “chasing”, “herding”
+- `herd-radius`
+- a 10-tick herding duration
+- `[state] of turtles`
+
+Your invariant for `shepherds` contains none of that. It only contains:
+
+- procedures like `search-for-sheep`, `find-new-herd`, `calculate-herding-efficiency`
+- variables like `carried-sheep`, `found-herd?`, `sheep-nearby`
+- widgets like `num-sheep`, `num-shepherds`, `sheep-speed`
+
+So unless the invariant is incomplete, the seed is off-model.
+
+That means the current prompt has a contradiction:
+
+- “Keep the new Q&A semantically equivalent to the seed”
+- “Preserve technical correctness”
+- “Do not invent identifiers outside this list”
+
+You can’t satisfy all 3 if the seed is already wrong for the model.
+
+---
+
+# What to fix
+
+## 1. Fix the prompt priority order
+
+Right now the prompt treats “paraphrase the seed” as if it were always compatible with the model. That is too strong.
+
+Change the priority order to:
+
+1. **Model invariants and model correctness**
+2. Output format
+3. Similarity to seed
+4. Style
+
+### Add this explicitly
+
+Use wording like:
+
+> Priority order:
+> 1. Stay consistent with the model invariants and model summary.
+> 2. Maintain technical correctness.
+> 3. Stay as close as possible to the seed.
+> If the seed conflicts with the model invariants, preserve only the high-level intent and remove or replace unsupported details.
+
+That one change resolves most impossible cases.
+
+---
+
+## 2. Add a “conflict policy” to the prompt
+
+You need a rule for what the model should do when the seed is incompatible.
+
+### Best option
+Allow a skip / abstain output:
+
+```json
+{"skip": "SEED_INVARIANT_CONFLICT"}
+```
+
+If you cannot support skip, then allow a **grounded rewrite** instead of a strict paraphrase.
+
+### Prompt text
+Add:
+
+> If the seed mentions unsupported model-specific mechanisms, identifiers, states, timers, thresholds, or widget names, do not preserve them literally. Replace them with the nearest invariant-grounded formulation. If no grounded reformulation is possible, return `{"skip":"SEED_INVARIANT_CONFLICT"}`.
+
+Without this, the model is forced to hallucinate or fail.
+
+---
+
+## 3. Stop asking for “same correct answer content” when the seed is not grounded
+
+This line is too strong:
+
+> Keep the same meaning and the same correct answer content.
+
+That only works if the seed answer is already correct for the model.
+
+Replace it with:
+
+> Preserve the pedagogical intent and question type where compatible with the model. If the seed contains unsupported content, rewrite to the nearest technically correct model-grounded variant.
+
+In your example, “state transition logic for sheepdog states” should not remain a state-machine answer if the model has no such state machine.
+
+---
+
+## 4. Make the prompt distinguish 3 kinds of terms
+
+Right now everything is treated as “identifiers,” but there are really 3 categories:
+
+### A. Model-specific identifiers
+These must be whitelisted by the model invariant.
+
+Examples:
+- `search-for-sheep`
+- `carried-sheep`
+- `num-sheep`
+
+### B. NetLogo-general terms
+These are valid globally and should not require model-specific whitelisting.
+
+Examples:
+- ticks
+- turtles
+- patches
+- BehaviorSpace
+- reporter
+- plot
+- monitor
+
+If your invariant checker rejects backticked NetLogo primitives like `ticks` or `turtles`, that is too strict.
+
+### C. Model-specific concepts expressed in plain English
+These are the tricky ones. They may not be exact identifiers, but they still need grounding.
+
+Examples:
+- “state machine”
+- “chasing mode”
+- “herd radius”
+- “cooldown period”
+
+These should be controlled by a **model summary / concept whitelist**, not just identifier extraction.
+
+---
+
+# How to fix the invariant
+
+Your current invariant is too narrow for generation, and too weak for grounding.
+
+## 5. Regenerate invariants from the actual `.nlogo` source
+
+If the real `shepherds` model actually contains `state`, `herd-radius`, or named modes, then your invariant is incomplete.
+
+A good model invariant should include:
+
+- procedures (`to`, `to-report`)
+- globals
+- `turtles-own`
+- `patches-own`
+- `links-own`
+- breed definitions, singular and plural
+- `breed-own` variables
+- widget variable names from the Interface
+- optional enum/string literals used as state values
+
+### Better invariant schema
+Something like:
+
+```json
+{
+  "procedures": [...],
+  "globals": [...],
+  "turtles_own": [...],
+  "patches_own": [...],
+  "links_own": [...],
+  "breeds": [{"plural": "shepherds", "singular": "shepherd"}],
+  "breed_own": {
+    "shepherds": [...],
+    "sheep": [...]
+  },
+  "widgets": [...],
+  "enum_literals": [...],
+  "model_summary": "...",
+  "forbidden_or_absent_concepts": [...]
+}
+```
+
+Your current invariant only has a partial whitelist. That is fine for validation, but not enough for grounded synthesis.
+
+---
+
+## 6. Add a model summary and absent-concepts list
+
+This is the biggest missing piece.
+
+A whitelist of identifiers does **not** stop the LLM from inventing unsupported plain-English mechanisms.
+
+For each model, add:
+
+### `model_summary`
+A short grounded description from the model code / Info tab.
+
+For example:
+
+> `shepherds` models how `shepherds` search for and move `sheep`, using procedures such as `search-for-sheep`, `find-new-herd`, and `find-empty-spot`. The model tracks quantities like `carried-sheep`, `sheep-nearby`, `found-herd?`, and `herding-efficiency`.
+
+### `absent_concepts`
+Explicitly list features that are not present.
+
+For this example:
+
+```json
+"absent_concepts": [
+  "explicit finite-state machine",
+  "patrolling state",
+  "chasing state",
+  "herding state",
+  "herd-radius",
+  "state reporter",
+  "cooldown timer"
+]
+```
+
+This helps a lot. The LLM needs both positive and negative grounding.
+
+---
+
+## 7. Allow global NetLogo primitives separately from model invariants
+
+Your validator should not treat all backticked tokens as model-specific.
+
+Create a global whitelist for NetLogo primitives and platform terms, such as:
+
+- `ticks`
+- `turtles`
+- `patches`
+- `count`
+- `mean`
+- `distance`
+- `ask`
+- `BehaviorSpace`
+
+Then validate against:
+
+- model-specific identifiers
+- global NetLogo whitelist
+
+Otherwise valid NetLogo language may be rejected as “unknown identifier.”
+
+---
+
+# What to change in the prompt, concretely
+
+Here is a much safer prompt pattern.
+
+---
+
+## Revised prompt template
+
+```text
+You generate high-quality synthetic training data for NetLogo Q&A.
+
+Hard rules:
+- Output JSON only: {"question": "...", "answer": "..."} or {"skip":"SEED_INVARIANT_CONFLICT"}
+- No markdown fences, no preamble, no commentary.
+- Preserve technical correctness.
+- Backtick only model-specific identifiers from the whitelist below.
+- Do not invent model-specific identifiers, states, thresholds, timers, or widget names.
+- Standard NetLogo terms like ticks, turtles, patches, and BehaviorSpace may be used in plain English; avoid backticks unless necessary.
+
+Priority order:
+1. Model invariants and model summary
+2. Technical correctness
+3. Similarity to seed
+4. Style
+
+If the seed conflicts with the model invariants or absent-concepts list:
+- preserve only the high-level intent
+- remove unsupported mechanisms
+- rewrite toward the nearest grounded variant
+- if no grounded rewrite is possible, return {"skip":"SEED_INVARIANT_CONFLICT"}
+
+CONTEXT:
+- model_name: shepherds
+- level: L3
+- tier: C
+- mode: grounded_paraphrase
+- invariant_regime: MODEL_STRICT
+
+Style: L3 = scientific coaching.
+Include:
+- exactly one testable hypothesis
+- exactly one experiment
+- exactly one limitation
+Use only supported model content.
+
+MODEL SUMMARY:
+This model concerns `shepherds` and `sheep`, with behavior expressed through `search-for-sheep`, `find-new-herd`, `find-empty-spot`, `update-sheep-counts`, and `calculate-herding-efficiency`. Relevant tracked variables include `carried-sheep`, `found-herd?`, `sheep-nearby`, `sheepless-neighborhoods`, and `herding-efficiency`.
+
+MODEL INVARIANTS:
+- procedures: ...
+- variables: ...
+- breeds: ...
+- widgets: ...
+
+ABSENT CONCEPTS:
+- no explicit finite-state machine
+- no named states such as patrolling/chasing/herding
+- no herd-radius identifier
+- no state reporter
+
+TASK:
+Rewrite the seed into the nearest technically correct question-answer pair for this model.
+Preserve the pedagogical intent when possible, but do not preserve unsupported details.
+
+SEED QUESTION:
+...
+
+SEED ANSWER:
+...
+```
+
+---
+
+# Also fix the task mode name
+
+Do not call this mode `paraphrase` if you expect it to correct bad seeds.
+
+Use one of:
+
+- `grounded_paraphrase`
+- `model_rewrite`
+- `invariant_repair`
+- `paraphrase_if_compatible_else_rewrite`
+
+That makes the instruction honest.
+
+---
+
+# For this specific seed, what should happen?
+
+## If the invariant is correct
+Then this seed should **not** be paraphrased as a state-machine answer.
+
+It should either:
+
+### A. Skip
+```json
+{"skip":"SEED_INVARIANT_CONFLICT"}
+```
+
+or
+
+### B. Rewrite to a grounded nearby question
+For example:
+
+- “How is shepherd behavior controlled in the `shepherds` model?”
+- “How do `search-for-sheep` and `find-new-herd` shape what `shepherds` do?”
+- “What variables indicate whether a shepherd has located sheep or a herd?”
+
+That stays near the intent of “behavioral logic” without inventing a `state` system.
+
+## If the invariant is incomplete
+Then fix the invariant first, not the prompt.
+
+---
+
+# Add a seed–invariant compatibility check before prompting
+
+This is not strictly a prompt change, but it will save you a lot of rejected generations.
+
+Before sending a seed to the LLM:
+
+1. extract candidate model-specific terms from the seed
+2. compare against:
+   - model identifiers
+   - model summary / concept list
+   - absent concept list
+3. if the seed is incompatible, do not use `paraphrase` mode
+
+### Route incompatible seeds to:
+- skip
+- grounded rewrite
+- human review
+- less strict regime
+
+This prevents impossible prompt setups.
+
+---
+
+# Tighten the L3 style so it doesn’t hallucinate
+
+Your current L3 instruction:
+
+> Include hypothesis generation, experimental design, and critical analysis.
+
+This is good pedagogically, but too open-ended. It encourages invention.
+
+Use a fixed structure instead:
+
+> Answer must contain:
+> - one hypothesis
+> - one experiment using only listed widgets
+> - one limitation tied to listed procedures or variables
+
+This reduces drift.
+
+---
+
+# One more important fix: accept “plain English correction,” not literal homotopy
+
+The phrase:
+
+> semantically equivalent (homotopic) to the seed
+
+is too ambiguous for a bad seed. Replace it with:
+
+> Preserve the same educational target and local topic when compatible with the model. If the seed is model-incompatible, keep only the nearest valid topic neighborhood.
+
+That is much easier for an LLM to follow.
+
+---
+
+# Practical recommendation summary
+
+## Prompt fixes
+- Make invariants higher priority than seed similarity
+- Add a conflict policy: rewrite or skip
+- Replace “same answer content” with “same pedagogical intent where compatible”
+- Distinguish model-specific identifiers from NetLogo-general terms
+- Add model summary and absent-concepts block
+- Constrain L3 to fixed slots to reduce hallucination
+
+## Invariant fixes
+- Regenerate from actual `.nlogo`
+- Include all code-defined identifiers, not a partial subset
+- Add global NetLogo whitelist
+- Add model summary
+- Add absent/forbidden concept list
+- Optionally include enum/string literals and aliases
+
+## Pipeline fix
+- Preflight seed-vs-model compatibility
+- Do not use strict paraphrase on incompatible seeds
+
+---
+
+# Short version
+
+Your LLM is being asked to paraphrase a seed that is probably wrong for the `shepherds` model. No prompt can reliably solve that unless you either:
+
+1. **fix the invariant** so it includes the missing real identifiers, or  
+2. **fix the prompt** so model invariants override the seed and incompatible seeds are rewritten or skipped.
+
+
+
+- a revised invariant schema,
+- a revised prompt template,
+- and a compatibility-check heuristic for your pipeline.
+
+Great. Here’s a concrete package you can drop into the pipeline.
+
+---
+
+# 1. Revised model invariant schema
+
+Your current invariant is good for a narrow identifier check, but not for grounded generation. The generator needs:
+
+- exact identifiers
+- what the model is about
+- what the model is not about
+- which plain-English concepts are safe
+- which NetLogo-general terms are globally allowed
+
+## Proposed schema
+
+```json
+{
+  "model_name": "shepherds",
+  "source_hash": "optional_sha1_of_nlogo",
+  "procedures": [
+    "calculate-herding-efficiency",
+    "find-empty-spot",
+    "find-new-herd",
+    "go",
+    "search-for-sheep",
+    "setup",
+    "update-sheep-counts",
+    "wiggle"
+  ],
+  "globals": [
+    "carried-sheep",
+    "found-herd?",
+    "herding-efficiency",
+    "sheep-nearby",
+    "sheepless-neighborhoods"
+  ],
+  "turtles_own": [],
+  "patches_own": [],
+  "links_own": [],
+  "breeds": [
+    {"plural": "sheep", "singular": "a-sheep"},
+    {"plural": "shepherds", "singular": "shepherd"}
+  ],
+  "breed_own": {
+    "sheep": [],
+    "shepherds": []
+  },
+  "widgets": [
+    "num-sheep",
+    "num-shepherds",
+    "sheep-speed"
+  ],
+  "string_literals": [],
+  "numeric_params": [],
+  "concepts_present": [
+    "shepherds search for sheep",
+    "herd discovery",
+    "empty spot selection",
+    "counting nearby sheep",
+    "herding efficiency"
+  ],
+  "concept_aliases": {
+    "behavior logic": [
+      "search-for-sheep",
+      "find-new-herd",
+      "find-empty-spot",
+      "update-sheep-counts"
+    ],
+    "performance metric": [
+      "herding-efficiency",
+      "calculate-herding-efficiency"
+    ]
+  },
+  "model_summary": "The model concerns how `shepherds` interact with `sheep`, including searching for sheep, locating herds or empty spots, updating local sheep counts, and measuring `herding-efficiency`.",
+  "absent_concepts": [
+    "explicit finite-state machine",
+    "named behavioral states",
+    "patrolling state",
+    "chasing state",
+    "herding state as a label",
+    "state variable",
+    "herd-radius",
+    "cooldown timer",
+    "state reporter"
+  ]
+}
+```
+
+## Why this helps
+
+It separates:
+
+- **true code identifiers**: procedures, globals, breeds, widgets
+- **plain-English grounded concepts**: `concepts_present`
+- **forbidden drift targets**: `absent_concepts`
+
+That is exactly what your current prompt is missing.
+
+---
+
+# 2. Global NetLogo whitelist
+
+Do not force model-specific invariants to carry every standard NetLogo term.
+
+Use a separate global allowlist for validation.
+
+## Example global whitelist
+
+```json
+{
+  "netlogo_general_terms": [
+    "ticks",
+    "tick",
+    "turtles",
+    "patches",
+    "links",
+    "BehaviorSpace",
+    "monitor",
+    "plot",
+    "reporter",
+    "button",
+    "chooser",
+    "slider",
+    "switch",
+    "output",
+    "world",
+    "agent",
+    "agents"
+  ],
+  "netlogo_primitives": [
+    "ask",
+    "count",
+    "mean",
+    "sum",
+    "min",
+    "max",
+    "distance",
+    "with",
+    "of",
+    "one-of",
+    "n-of",
+    "if",
+    "ifelse",
+    "let",
+    "set"
+  ]
+}
+```
+
+## Validation rule
+
+When checking backticked terms:
+
+Accept if token is in:
+
+- model-specific identifiers, or
+- global NetLogo allowlist
+
+Reject only if in neither.
+
+That alone will reduce false rejections.
+
+---
+
+# 3. Better prompt templates
+
+You really want two prompt modes, not one:
+
+1. **strict paraphrase** for seed-compatible cases
+2. **grounded rewrite** for seed-conflict cases
+
+Trying to use one prompt for both is part of the failure mode.
+
+---
+
+## A. Prompt template: strict paraphrase
+
+Use only when the seed passes compatibility.
+
+```text
+You generate high-quality synthetic training data for NetLogo Q&A.
+
+Hard rules:
+- Output JSON only: {"question": "...", "answer": "..."}
+- No markdown fences, no preamble, no commentary.
+- Preserve technical correctness.
+- Do not invent model-specific identifiers.
+- Backtick only model-specific identifiers from the whitelist below.
+- Standard NetLogo terms may appear in plain English without backticks.
+
+Priority order:
+1. Model invariants and model summary
+2. Technical correctness
+3. Similarity to seed
+4. Style
+
+CONTEXT:
+- model_name: {model_name}
+- level: {level}
+- tier: {tier}
+- mode: strict_paraphrase
+- invariant_regime: MODEL_STRICT
+
+Style:
+- scientific coaching
+- include exactly one hypothesis
+- include exactly one experiment
+- include exactly one limitation
+- stay close to the original topic
+
+MODEL SUMMARY:
+{model_summary}
+
+MODEL INVARIANTS:
+- procedures: {procedures}
+- globals/variables: {globals}
+- breeds: {breeds}
+- widgets: {widgets}
+
+ABSENT CONCEPTS:
+{absent_concepts}
+
+TASK:
+Paraphrase the seed into a new natural variant.
+Keep the meaning as close as possible while remaining fully grounded in the model.
+
+SEED QUESTION:
+{seed_question}
+
+SEED ANSWER:
+{seed_answer}
+
+OUTPUT:
+Return ONE JSON object only: {"question": "...", "answer": "..."}
+```
+
+---
+
+## B. Prompt template: grounded rewrite / repair
+
+Use when the seed conflicts with invariants.
+
+```text
+You generate high-quality synthetic training data for NetLogo Q&A.
+
+Hard rules:
+- Output JSON only:
+  {"question": "...", "answer": "..."}
+  or {"skip":"SEED_INVARIANT_CONFLICT"}
+- No markdown fences, no preamble, no commentary.
+- Preserve technical correctness.
+- Do not invent model-specific identifiers, states, timers, thresholds, or widgets.
+- Backtick only model-specific identifiers from the whitelist below.
+- Standard NetLogo terms may appear in plain English without backticks.
+
+Priority order:
+1. Model invariants and model summary
+2. Technical correctness
+3. Preserve the educational intent of the seed if possible
+4. Style
+
+Conflict policy:
+- If the seed mentions unsupported mechanisms or identifiers, do not preserve them literally.
+- Rewrite to the nearest grounded topic within this model.
+- If no grounded rewrite is possible, return {"skip":"SEED_INVARIANT_CONFLICT"}.
+
+CONTEXT:
+- model_name: {model_name}
+- level: {level}
+- tier: {tier}
+- mode: grounded_rewrite
+- invariant_regime: MODEL_STRICT
+
+Style:
+- scientific coaching
+- include exactly one hypothesis
+- include exactly one experiment
+- include exactly one limitation
+- use only supported model content
+
+MODEL SUMMARY:
+{model_summary}
+
+MODEL INVARIANTS:
+- procedures: {procedures}
+- globals/variables: {globals}
+- breeds: {breeds}
+- widgets: {widgets}
+
+PRESENT CONCEPTS:
+{concepts_present}
+
+ABSENT CONCEPTS:
+{absent_concepts}
+
+TASK:
+Rewrite the seed into the nearest technically correct question-answer pair for this model.
+Keep the local educational intent where possible, but remove unsupported content.
+
+SEED QUESTION:
+{seed_question}
+
+SEED ANSWER:
+{seed_answer}
+
+OUTPUT:
+Return ONE JSON object only:
+{"question": "...", "answer": "..."}
+or
+{"skip":"SEED_INVARIANT_CONFLICT"}
+```
+
+---
+
+# 4. Recommended wording changes to your current prompt
+
+If you want a minimal edit rather than a full redesign, change these lines.
+
+## Replace this
+> Keep the new Q&A semantically equivalent (homotopic) to the seed for this class.
+
+## With this
+> Keep the new Q&A as close as possible to the seed, but model consistency overrides seed similarity. If the seed conflicts with the model invariants or absent-concepts list, rewrite to the nearest grounded variant.
+
+---
+
+## Replace this
+> Keep the same meaning and the same correct answer content.
+
+## With this
+> Preserve the educational target and local topic where compatible with the model. If the seed contains unsupported content, preserve only the nearest grounded meaning.
+
+---
+
+## Add this
+> If the seed mentions unsupported model-specific states, variables, widgets, thresholds, timers, or procedures, do not repeat them.
+
+---
+
+# 5. Seed–invariant compatibility heuristic
+
+This should happen before prompting.
+
+The purpose is to route each seed to:
+
+- `strict_paraphrase`
+- `grounded_rewrite`
+- `skip`
+
+---
+
+## Compatibility scoring idea
+
+Use three signals:
+
+### A. Identifier support score
+How many candidate model-specific terms in the seed are supported by the invariant?
+
+### B. Absent concept hit count
+Does the seed contain concepts known not to exist in this model?
+
+### C. Topic grounding score
+Does the seed overlap with `model_summary`, `concepts_present`, or corpus examples for that model?
+
+---
+
+## Lightweight heuristic
+
+### Step 1: Extract candidate tokens
+From question and answer:
+
+- backticked identifiers
+- hyphenated words
+- variable-like words with `?`
+- widget-like phrases
+- repeated noun phrases
+- quoted strings that look like state names
+
+Examples from your bad seed:
+- `state`
+- `patrolling`
+- `chasing`
+- `herding`
+- `herd-radius`
+- `[state] of turtles`
+
+---
+
+## Step 2: Normalize
+Lowercase, strip punctuation, singularize obvious plurals, preserve exact identifier forms too.
+
+---
+
+## Step 3: Compare against sets
+
+Let:
+
+- `M` = model identifiers
+- `C+` = present concepts
+- `C-` = absent concepts
+- `G` = global NetLogo terms
+
+Then compute:
+
+- `supported_identifiers = extracted ∩ (M ∪ G)`
+- `unsupported_identifiers = extracted - (M ∪ G)`
+- `absent_hits = phrases matched in C-`
+- `present_hits = phrases matched in C+ or model_summary`
+
+---
+
+## Routing rule
+
+### Strict paraphrase
+Use if:
+
+- `absent_hits == 0`
+- unsupported identifier ratio is low
+- some present grounding exists
+
+Example threshold:
+```python
+if absent_hits == 0 and unsupported_ratio <= 0.15 and present_hits >= 1:
+    route = "strict_paraphrase"
+```
+
+### Grounded rewrite
+Use if:
+
+- some unsupported terms exist
+- but seed still seems locally related to the model
+
+Example:
+```python
+elif absent_hits <= 2 and present_hits >= 1:
+    route = "grounded_rewrite"
+```
+
+### Skip
+Use if:
+
+- many absent hits
+- topic appears from another model
+- no grounding signal
+
+Example:
+```python
+else:
+    route = "skip"
+```
+
+---
+
+## Pseudocode
+
+```python
+def route_seed(seed_q, seed_a, invariant, global_allow):
+    text = f"{seed_q}\n{seed_a}"
+
+    extracted = extract_candidate_terms(text)
+    model_terms = (
+        set(invariant["procedures"]) |
+        set(invariant["globals"]) |
+        set(invariant["widgets"]) |
+        set([b["plural"] for b in invariant["breeds"]]) |
+        set([b["singular"] for b in invariant["breeds"]])
+    )
+    global_terms = set(global_allow["netlogo_general_terms"]) | set(global_allow["netlogo_primitives"])
+
+    supported = [t for t in extracted if t in model_terms or t in global_terms]
+    unsupported = [t for t in extracted if t not in model_terms and t not in global_terms]
+
+    absent_hits = match_phrases(text, invariant["absent_concepts"])
+    present_hits = match_phrases(text, invariant["concepts_present"]) + match_summary_overlap(text, invariant["model_summary"])
+
+    unsupported_ratio = len(unsupported) / max(1, len(extracted))
+
+    if len(absent_hits) == 0 and unsupported_ratio <= 0.15 and present_hits >= 1:
+        return "strict_paraphrase"
+    elif len(absent_hits) <= 2 and present_hits >= 1:
+        return "grounded_rewrite"
+    else:
+        return "skip"
+```
+
+---
+
+# 6. Better extraction heuristic
+
+You do not need perfect NLP here. A practical extractor is enough.
+
+## Extract these patterns
+
+- backtick-quoted tokens
+- hyphenated tokens: `herd-radius`
+- suffix `?` variables: `found-herd?`
+- bracketed patterns: `[state]`
+- quoted strings: `"patrolling"`
+- CamelCase-ish or widget-like interface names
+- noun phrases after:
+  - “state”
+  - “variable”
+  - “procedure”
+  - “reporter”
+  - “slider”
+  - “parameter”
+
+## Red flags to catch
+These often indicate model drift:
+
+- explicit state machine vocabulary
+- new numeric thresholds
+- timers/cooldowns
+- mode names
+- radius / neighborhood names not in invariant
+- invented plots or reporters
+
+---
+
+# 7. Example routing for your `shepherds` seed
+
+## Seed content contains
+- sheepdog states
+- `state`
+- patrolling
+- chasing
+- herding
+- `herd-radius`
+- 10-tick herding rule
+
+## Against invariant
+Supported:
+- maybe `ticks`, `turtles`, `BehaviorSpace` as global NetLogo terms
+
+Unsupported:
+- `state`
+- `patrolling`
+- `chasing`
+- `herding` as state label
+- `herd-radius`
+
+Absent hits:
+- explicit finite-state machine
+- named behavioral states
+- herd-radius
+- state reporter
+
+## Route
+This should be `grounded_rewrite` or `skip`, not `strict_paraphrase`.
+
+---
+
+# 8. Example grounded rewrite for that bad seed
+
+If you choose rewrite instead of skip, this is the kind of output you want.
+
+```json
+{
+  "question": "How is shepherd behavior organized in the `shepherds` model if there is no explicit state variable?",
+  "answer": "In this model, it is safer to think of shepherd behavior as emerging from procedures such as `search-for-sheep`, `find-new-herd`, `find-empty-spot`, and `update-sheep-counts`, rather than from named states. A useful hypothesis is that changes in local sheep availability, reflected by variables like `sheep-nearby` and `found-herd?`, are enough to explain most observable shifts in what `shepherds` do. To test that idea, you could run BehaviorSpace experiments that vary `num-sheep`, `num-shepherds`, and `sheep-speed`, then examine how `herding-efficiency` changes across runs. If behavior is mainly driven by local sheep conditions, then changes in those settings should systematically alter `herding-efficiency` without requiring any explicit state machine. One limitation is that this explanation depends on the listed procedures and variables, so if you want finer causal detail, you would still need to inspect how those procedures are implemented in the code."
+}
+```
+
+That is much more likely to pass.
+
+---
+
+# 9. Validation updates
+
+Your current gate 2 only checks backticked identifiers. That is not enough.
+
+You need two levels:
+
+## Level 1: identifier validation
+Current check, but include global NetLogo allowlist.
+
+## Level 2: unsupported concept scan
+Reject if the answer contains model-specific absent concepts, even if not backticked.
+
+### Example reject triggers
+For `shepherds`:
+
+- “patrolling”
+- “chasing”
+- “state machine”
+- “herd-radius”
+- “cooldown”
+- “10-tick herding duration”
+
+These are not identifiers, but still wrong.
+
+## Suggested rejection codes
+- `ABSENT_CONCEPT_MENTIONED`
+- `SEED_DRIFT_UNGROUNDED`
+- `UNSUPPORTED_MODEL_MECHANISM`
+
+---
+
+# 10. Suggested implementation details
+
+## A. Build invariants from `.nlogo`
+Parse:
+
+- `breed`
+- `directed-link-breed`
+- `undirected-link-breed`
+- `globals`
+- `turtles-own`
+- `patches-own`
+- `links-own`
+- `<breed>-own`
+- `to`
+- `to-report`
+- widget variables from Interface tab
+
+## B. Build `model_summary`
+Use one of:
+- Info tab summary
+- first paragraph of model docs
+- LLM-generated summary from code, but validated to only mention extracted identifiers/concepts
+
+## C. Build `absent_concepts`
+This can be partly automatic:
+
+- if there is no variable named `state`, add “state variable”
+- if there are no string literals like `"patrolling"`, add “named behavioral states”
+- if no widget/variable/procedure contains “radius”, add “herd-radius” only if it appears in corpus drift diagnostics
+- mine frequent wrong terms from rejected generations
+
+That last point is useful: your rejected examples can help populate `absent_concepts`.
+
+---
+
+# 11. Recommended pipeline routing
+
+Here’s a clean routing setup.
+
+## Route 1: strict paraphrase
+Use only if seed is compatible.
+
+## Route 2: grounded rewrite
+Use if seed is in the right neighborhood but contains unsupported details.
+
+## Route 3: skip
+Use if seed is too far from the model.
+
+### Pipeline sketch
+
+```python
+route = route_seed(seed_q, seed_a, invariant, global_allow)
+
+if route == "strict_paraphrase":
+    prompt = build_strict_paraphrase_prompt(...)
+elif route == "grounded_rewrite":
+    prompt = build_grounded_rewrite_prompt(...)
+else:
+    write_rejected(seed_id, reason="SEED_INVARIANT_CONFLICT")
+    continue
+```
+
+---
+
+# 12. A compact “drop-in” invariant format if you don’t want a full schema yet
+
+If you want the smallest possible change, add just these fields:
+
+```json
+{
+  "procedures": [...],
+  "variables": [...],
+  "breeds": [...],
+  "widgets": [...],
+  "model_summary": "Short grounded summary here.",
+  "concepts_present": [...],
+  "absent_concepts": [...],
+  "netlogo_general_ok": [
+    "ticks",
+    "turtles",
+    "patches",
+    "BehaviorSpace",
+    "reporter",
+    "plot",
+    "monitor"
+  ]
+}
+```
+
+That would already improve generation significantly.
+
+---
+
+# 13. One prompt line that will help more than it looks
+
+Add this exact instruction:
+
+> Do not preserve unsupported specificity.
+
+That is the core failure mode in your worked example.
+
+The model is trying too hard to keep details like:
+- state names
+- timers
+- radii
+- reporters
+
+When it should instead preserve only the educational neighborhood:
+- behavioral logic
+- causal interpretation
+- experiment design
+- limitations
+
+---
+
+# 14. My recommended minimum viable fix
+
+If you want the shortest path to better acceptance rates:
+
+## Do these 5 things first
+
+1. **Add `model_summary`**
+2. **Add `absent_concepts`**
+3. **Add a global NetLogo allowlist**
+4. **Route seeds with a compatibility check**
+5. **Use `grounded_rewrite` instead of strict paraphrase for conflicted seeds**
+
+That should reduce impossible generations immediately.
+
+---
+
+
+1. a Python `route_seed()` implementation,  
+2. a parser plan for extracting richer invariants from `.nlogo`, or  
+3. a revised `shepherds` prompt filled in end-to-end with your actual example.
+
+Yes — **analyzed by model, absolutely**.  
+But **used as the primary source of invariants, no**.
+
+## The right distinction
+
+For each of the 31 models, you want two different things:
+
+### 1. Hard invariant
+Derived from the actual `.nlogo` model source.
+
+This should include:
+- procedures
+- globals
+- breed names
+- breed-owned variables
+- widgets
+- string/state literals if they really exist
+
+This is your **ground truth**.
+
+### 2. Soft model lexicon / concept profile
+Derived from all seeds and corpus Q&A for that model.
+
+This should include:
+- recurring plain-English concepts
+- common paraphrases
+- near-synonyms
+- recurrent but unsupported drift terms
+- likely “educational neighborhoods” for that model
+
+This is **supporting evidence**, not ground truth.
+
+---
+
+# Why seeds alone are not enough
+
+Seeds are noisy. They may contain:
+
+- hallucinated identifiers
+- drift from another model
+- user phrasing that never appears in code
+- abstract language that is valid pedagogically but not literally implemented
+
+Your worked example shows exactly that problem.
+
+If you build invariants from seeds alone, you risk turning errors into “allowed facts.”
+
+So the rule should be:
+
+> **Source code defines what is truly in the model.**  
+> **Seeds help define how people talk about the model.**
+
+---
+
+# What you should do for 31 models
+
+Because there are only 31 models, this is very feasible.
+
+For each model:
+
+## A. Aggregate all relevant text
+Collect:
+- all seeds for that model
+- all corpus Q&A for that model
+- optionally rejected synthetic generations for that model
+
+Group by `model_name`.
+
+---
+
+## B. Extract hard invariant from `.nlogo`
+This should be automatic.
+
+From source, extract:
+- `to` / `to-report`
+- `globals`
+- `breed`, `breed-own`
+- `turtles-own`, `patches-own`, `links-own`
+- interface widget variable names
+- optional string literals used as states or modes
+
+This becomes the **hard whitelist**.
+
+---
+
+## C. Mine the model’s corpus language
+From seeds + corpus examples for that model, extract:
+
+### Exact identifier candidates
+- backticked items
+- hyphenated names
+- `?` predicates
+- bracket forms like `[foo]`
+
+### Plain-English concept candidates
+- noun phrases
+- “state”, “rule”, “threshold”, “efficiency”, “search”, “density”, etc.
+- recurring verbs and mechanism phrases
+
+### Suspicious terms
+Terms that are:
+- frequent in seeds/corpus
+- but absent from the hard invariant
+
+These are the ones to inspect.
+
+---
+
+# What to do with mismatches
+
+This is the key.
+
+For each candidate term from seeds/corpus:
+
+## Case 1: Found in source
+Add to hard invariant or synonym table.
+
+Example:
+- seed says `found-herd?`
+- source has `found-herd?`
+- good
+
+## Case 2: Not found in source, but clearly a paraphrase of source behavior
+Add to **soft concept aliases**, not hard invariant.
+
+Example:
+- seed says “behavior logic”
+- source has `search-for-sheep`, `find-new-herd`
+- map as a concept alias
+
+## Case 3: Not found in source, recurring in bad generations / bad seeds
+Add to **absent_concepts** or drift warnings.
+
+Example:
+- “patrolling state”
+- “herd-radius”
+- “cooldown”
+
+## Case 4: Frequent in corpus but absent from source unexpectedly
+Audit the source extraction.
+
+This often means:
+- your parser missed something
+- widgets were not extracted
+- string literals were skipped
+- source variant mismatch
+
+---
+
+# So yes: analyze seeds by model, but not to define the invariant directly
+
+A better framing is:
+
+- **extract hard invariants from model source**
+- **audit and enrich them using model-grouped seeds/corpus**
+
+That gives you a layered model profile.
+
+---
+
+# Recommended 3-layer representation per model
+
+## Layer 1: hard invariant
+Strict validation.
+
+```json
+{
+  "procedures": [...],
+  "globals": [...],
+  "breeds": [...],
+  "widgets": [...]
+}
+```
+
+## Layer 2: soft concept lexicon
+Prompt grounding.
+
+```json
+{
+  "concepts_present": [...],
+  "concept_aliases": {
+    "behavior logic": ["search-for-sheep", "find-new-herd"]
+  }
+}
+```
+
+## Layer 3: absent / suspicious concepts
+Anti-hallucination.
+
+```json
+{
+  "absent_concepts": [
+    "state machine",
+    "herd-radius",
+    "patrolling state"
+  ]
+}
+```
+
+---
+
+# Best workflow for the 31 models
+
+## Step 1
+Build source-derived hard invariants for all 31 models.
+
+## Step 2
+For each model, scan all seeds/corpus examples and produce a discrepancy report:
+
+- supported identifiers
+- unsupported identifiers
+- frequent concept phrases
+- possible parser misses
+- likely absent concepts
+
+## Step 3
+Manually review only the top mismatches per model.
+
+Since there are just 31 models, this is manageable.
+
+Even 10–20 minutes per model would likely pay off a lot.
+
+## Step 4
+Use the reviewed results to augment each model with:
+- `model_summary`
+- `concepts_present`
+- `concept_aliases`
+- `absent_concepts`
+
+---
+
+# A practical output report per model
+
+For each model, generate something like:
+
+```json
+{
+  "model_name": "shepherds",
+  "hard_identifiers_count": 18,
+  "seed_terms_supported": [
+    "search-for-sheep",
+    "found-herd?",
+    "herding-efficiency"
+  ],
+  "seed_terms_unsupported": [
+    "state",
+    "patrolling",
+    "chasing",
+    "herd-radius"
+  ],
+  "frequent_plain_concepts": [
+    "search behavior",
+    "herd finding",
+    "efficiency measurement"
+  ],
+  "candidate_absent_concepts": [
+    "state machine",
+    "cooldown timer"
+  ],
+  "audit_flags": [
+    "high unsupported term rate in class 70 seeds"
+  ]
+}
+```
+
+That will show you very quickly whether rejection problems come from:
+- bad seeds
+- incomplete invariant extraction
+- overly strict validation
+- weak prompts
+
+---
+
+# In short
+
+## Yes
+You **should** analyze the seeds and corpus **by model**.
+
+## But
+You should not let seeds alone “define” the invariant.
+
+## Instead
+Use:
+
+- **model source** for hard invariants
+- **model-grouped seeds/corpus** for soft concepts, aliases, and absent-concept detection
+
+That is the robust setup.
+
+---
+
+# Recommended principle
+
+> **Invariant = source-derived**  
+> **Prompt grounding = source-derived + corpus-enriched**  
+> **Conflict detection = corpus-derived terms compared against source-derived invariants**
+
+---
+
+
+
+1. a concrete per-model audit pipeline,  
+2. a JSON schema for `model_profiles.json`, or  
+3. Python code to mine seed/corpus terms by `model_name` and compare them to source invariants.
+
+
+Yes. The right workflow is:
+
+- **group seeds/corpus by `model_name`**
+- **extract hard invariants from the actual `.nlogo` source for each model**
+- **use the grouped seeds/corpus to audit, enrich, and stress-test those invariants**
+
+Below is a concrete setup.
+
+---
+
+# 1. Per-model audit pipeline
+
+## Goal
+
+For each of the 31 models, build a `model_profile` with 3 layers:
+
+1. **hard**: exact source-derived identifiers
+2. **soft**: corpus-derived concepts and aliases
+3. **negative**: absent concepts / common drift terms
+
+---
+
+## Stage A: Build hard invariants from source
+
+For each `.nlogo` model, extract:
+
+- procedures
+- globals
+- `turtles-own`
+- `patches-own`
+- `links-own`
+- breed singular/plural
+- `breed-own`
+- widget variable names
+- optional string literals used as true state labels
+
+This is the only part that should define the strict whitelist.
+
+---
+
+## Stage B: Group all text by model
+
+For each `model_name`, collect:
+
+- source corpus Q&A
+- seed Q&A
+- accepted synthetic Q&A
+- rejected synthetic Q&A
+
+You want one pooled text bank per model.
+
+---
+
+## Stage C: Mine model-specific language from the grouped text
+
+From each Q&A, extract:
+
+### exact-ish tokens
+- backticked identifiers
+- hyphenated tokens like `herd-radius`
+- predicate-style names like `found-herd?`
+- bracketed reporters like `[state]`
+
+### plain-English phrases
+- state-related phrases
+- threshold/radius/timer phrases
+- efficiency/measurement phrases
+- search/herding/grouping phrases
+
+This is not for strict validation. It is for:
+- finding common aliases
+- detecting unsupported recurring terms
+- spotting parser misses
+
+---
+
+## Stage D: Compare text terms to the hard invariant
+
+For each model, split extracted terms into:
+
+- **supported exact**
+- **supported global NetLogo**
+- **unsupported**
+- **absent-concept hits**
+
+This gives you an audit report like:
+
+- top supported identifiers
+- top unsupported identifiers
+- top suspicious phrases
+- likely parser misses
+- likely absent concepts
+
+---
+
+## Stage E: Human review, model by model
+
+Since you only have 31 models, review is manageable.
+
+For each model, decide whether each recurring unsupported term is:
+
+### 1. a parser miss
+Add to hard invariant
+
+### 2. a useful paraphrase
+Add to `concept_aliases` or `concepts_present`
+
+### 3. a drift term
+Add to `absent_concepts`
+
+---
+
+## Stage F: Use the profile in generation
+
+Then prompt generation should use:
+
+- `hard` for strict identifier grounding
+- `soft` for topic grounding
+- `negative` for anti-hallucination
+
+And seed routing should use the audit profile to choose:
+
+- `strict_paraphrase`
+- `grounded_rewrite`
+- `skip`
+
+---
+
+# 2. Recommended `model_profiles.json` schema
+
+Here is a practical schema.
+
+```json
+{
+  "meta": {
+    "version": "v1",
+    "generated_at": "2026-03-17T00:00:00Z"
+  },
+  "global_netlogo": {
+    "general_terms": [
+      "ticks",
+      "tick",
+      "turtles",
+      "patches",
+      "links",
+      "BehaviorSpace",
+      "monitor",
+      "plot",
+      "reporter",
+      "button",
+      "chooser",
+      "slider",
+      "switch",
+      "world",
+      "agent",
+      "agents"
+    ],
+    "primitives": [
+      "ask",
+      "count",
+      "mean",
+      "sum",
+      "min",
+      "max",
+      "distance",
+      "with",
+      "of",
+      "one-of",
+      "n-of",
+      "if",
+      "ifelse",
+      "let",
+      "set"
+    ]
+  },
+  "models": {
+    "shepherds": {
+      "hard": {
+        "source_hash": "optional_sha1",
+        "procedures": [
+          "calculate-herding-efficiency",
+          "find-empty-spot",
+          "find-new-herd",
+          "go",
+          "search-for-sheep",
+          "setup",
+          "update-sheep-counts",
+          "wiggle"
+        ],
+        "globals": [
+          "carried-sheep",
+          "found-herd?",
+          "herding-efficiency",
+          "sheep-nearby",
+          "sheepless-neighborhoods"
+        ],
+        "turtles_own": [],
+        "patches_own": [],
+        "links_own": [],
+        "breeds": [
+          {"singular": "a-sheep", "plural": "sheep"},
+          {"singular": "shepherd", "plural": "shepherds"}
+        ],
+        "breed_own": {
+          "sheep": [],
+          "shepherds": []
+        },
+        "widgets": [
+          "num-sheep",
+          "num-shepherds",
+          "sheep-speed"
+        ],
+        "string_literals": []
+      },
+      "soft": {
+        "model_summary": "The model concerns how `shepherds` interact with `sheep`, including searching for sheep, locating herds or empty spots, updating local sheep counts, and measuring `herding-efficiency`.",
+        "concepts_present": [
+          "shepherds search for sheep",
+          "herd discovery",
+          "empty spot selection",
+          "counting nearby sheep",
+          "herding efficiency"
+        ],
+        "concept_aliases": {
+          "behavior logic": [
+            "search-for-sheep",
+            "find-new-herd",
+            "find-empty-spot",
+            "update-sheep-counts"
+          ],
+          "performance metric": [
+            "calculate-herding-efficiency",
+            "herding-efficiency"
+          ]
+        }
+      },
+      "negative": {
+        "absent_concepts": [
+          "explicit finite-state machine",
+          "named behavioral states",
+          "patrolling state",
+          "chasing state",
+          "herding state",
+          "state variable",
+          "state reporter",
+          "herd-radius",
+          "cooldown timer"
+        ]
+      },
+      "audit": {
+        "record_counts": {
+          "corpus": 0,
+          "seeds": 0,
+          "accepted_synth": 0,
+          "rejected_synth": 0
+        },
+        "top_supported_terms": [],
+        "top_unsupported_terms": [],
+        "top_absent_hits": [],
+        "top_phrase_candidates": [],
+        "parser_miss_candidates": [],
+        "last_reviewed": null
+      }
+    }
+  }
+}
+```
+
+---
+
+# 3. Suggested artifacts
+
+I would keep these files separate:
+
+## Stable
+- `model_profiles.json`
+
+## Generated reports
+- `model_audit_reports/shepherds.json`
+- `model_audit_reports/wolf_sheep_predation.json`
+- etc.
+
+## Optional routing/debug
+- `seed_routing_debug.jsonl`
+
+---
+
+# 4. Python audit script
+
+Below is a standard-library-only script skeleton that:
+
+- loads model profiles
+- loads Q&A records
+- groups by model
+- extracts candidate terms
+- compares them to hard invariants
+- writes per-model audit reports
+
+It assumes you already have records shaped like:
+
+```json
+{
+  "model_name": "shepherds",
+  "question": "...",
+  "answer": "...",
+  "source": "corpus"
+}
+```
+
+If `synth_plan.json` only gives IDs, join the seed text to records first.
+
+```python
+import json
+import re
+from collections import Counter, defaultdict
+from pathlib import Path
+from typing import Dict, List, Any
+
+BACKTICK_RE = re.compile(r"`([^`]+)`")
+BRACKET_RE = re.compile(r"\[([^\]]+)\]")
+QUOTE_RE = re.compile(r'"([^"]+)"|\'([^\']+)\'')
+IDLIKE_RE = re.compile(r"\b[a-zA-Z][a-zA-Z0-9-]*\??\b")
+
+PHRASE_KEYWORDS = {
+    "state", "states", "variable", "variables", "procedure", "procedures",
+    "reporter", "reporters", "slider", "monitor", "plot", "threshold",
+    "radius", "timer", "cooldown", "duration", "efficiency", "density",
+    "search", "herd", "herding", "shepherd", "sheep", "speed", "count"
+}
+
+STOPWORDS = {
+    "the", "a", "an", "of", "to", "for", "in", "on", "at", "by", "with",
+    "and", "or", "is", "are", "was", "were", "be", "as", "from", "that",
+    "this", "these", "those", "it", "its", "their", "them", "what", "how",
+    "why", "when", "where", "which", "do", "does", "did", "can", "could",
+    "would", "should", "into", "about", "than", "then", "if", "we", "you"
+}
+
+
+def load_json(path: str) -> Any:
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def load_jsonl(path: str) -> List[Dict[str, Any]]:
+    rows = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
+    return rows
+
+
+def dump_json(obj: Any, path: str) -> None:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, indent=2)
+
+
+def norm(s: str) -> str:
+    return re.sub(r"\s+", " ", s.strip().lower())
+
+
+def hard_term_set(model_profile: Dict[str, Any]) -> set:
+    hard = model_profile["hard"]
+    terms = set()
+
+    for key in ["procedures", "globals", "turtles_own", "patches_own", "links_own", "widgets", "string_literals"]:
+        for x in hard.get(key, []):
+            terms.add(norm(x))
+
+    for breed in hard.get("breeds", []):
+        if isinstance(breed, dict):
+            if "singular" in breed:
+                terms.add(norm(breed["singular"]))
+            if "plural" in breed:
+                terms.add(norm(breed["plural"]))
+        else:
+            terms.add(norm(breed))
+
+    for _, own_vars in hard.get("breed_own", {}).items():
+        for x in own_vars:
+            terms.add(norm(x))
+
+    return terms
+
+
+def global_term_set(global_netlogo: Dict[str, Any]) -> set:
+    terms = set()
+    for key in ["general_terms", "primitives"]:
+        for x in global_netlogo.get(key, []):
+            terms.add(norm(x))
+    return terms
+
+
+def extract_exact_terms(text: str) -> Counter:
+    out = Counter()
+
+    # backticks
+    for t in BACKTICK_RE.findall(text):
+        out[norm(t)] += 1
+
+    # bracketed single-token reporter references like [state]
+    for t in BRACKET_RE.findall(text):
+        t = t.strip()
+        if re.fullmatch(r"[A-Za-z][A-Za-z0-9-]*\??", t):
+            out[norm(t)] += 1
+
+    # identifier-like tokens that look model-specific
+    for t in IDLIKE_RE.findall(text):
+        if "-" in t or t.endswith("?"):
+            out[norm(t)] += 1
+
+    return out
+
+
+def extract_phrase_candidates(text: str, min_n: int = 2, max_n: int = 4) -> Counter:
+    tokens = [norm(t) for t in IDLIKE_RE.findall(text)]
+    tokens = [t for t in tokens if t not in STOPWORDS]
+
+    out = Counter()
+
+    # quoted phrases
+    for g1, g2 in QUOTE_RE.findall(text):
+        phrase = norm(g1 or g2)
+        if phrase and 1 <= len(phrase.split()) <= 4:
+            out[phrase] += 1
+
+    # keyword-centered ngrams
+    for n in range(min_n, max_n + 1):
+        for i in range(len(tokens) - n + 1):
+            gram = tokens[i:i+n]
+            if any(tok in PHRASE_KEYWORDS for tok in gram):
+                phrase = " ".join(gram)
+                out[phrase] += 1
+
+    return out
+
+
+def find_absent_hits(text: str, absent_concepts: List[str]) -> Counter:
+    t = norm(text)
+    hits = Counter()
+    for phrase in absent_concepts:
+        p = norm(phrase)
+        if p and p in t:
+            hits[p] += 1
+    return hits
+
+
+def short_example(record: Dict[str, Any], max_len: int = 220) -> Dict[str, str]:
+    q = record.get("question", "")[:max_len]
+    a = record.get("answer", "")[:max_len]
+    return {
+        "source": record.get("source", "unknown"),
+        "question": q,
+        "answer": a
+    }
+
+
+def analyze_model_records(model_name: str, records: List[Dict[str, Any]], profile: Dict[str, Any], global_terms: set) -> Dict[str, Any]:
+    model_terms = hard_term_set(profile)
+    absent_concepts = profile.get("negative", {}).get("absent_concepts", [])
+
+    supported_terms = Counter()
+    unsupported_terms = Counter()
+    phrase_candidates = Counter()
+    absent_hits = Counter()
+
+    examples_supported = defaultdict(list)
+    examples_unsupported = defaultdict(list)
+    examples_absent = defaultdict(list)
+
+    source_counts = Counter()
+
+    for rec in records:
+        source_counts[rec.get("source", "unknown")] += 1
+        text = f'{rec.get("question", "")}\n{rec.get("answer", "")}'
+
+        exact_terms = extract_exact_terms(text)
+        phrases = extract_phrase_candidates(text)
+        hits = find_absent_hits(text, absent_concepts)
+
+        for term, c in exact_terms.items():
+            if term in model_terms or term in global_terms:
+                supported_terms[term] += c
+                if len(examples_supported[term]) < 3:
+                    examples_supported[term].append(short_example(rec))
+            else:
+                unsupported_terms[term] += c
+                if len(examples_unsupported[term]) < 3:
+                    examples_unsupported[term].append(short_example(rec))
+
+        for phrase, c in phrases.items():
+            phrase_candidates[phrase] += c
+
+        for phrase, c in hits.items():
+            absent_hits[phrase] += c
+            if len(examples_absent[phrase]) < 3:
+                examples_absent[phrase].append(short_example(rec))
+
+    parser_miss_candidates = [
+        term for term, c in unsupported_terms.most_common()
+        if c >= 3 and term not in absent_concepts
+    ]
+
+    report = {
+        "model_name": model_name,
+        "record_counts": dict(source_counts),
+        "top_supported_terms": [
+            {"term": t, "count": c, "examples": examples_supported[t]}
+            for t, c in supported_terms.most_common(30)
+        ],
+        "top_unsupported_terms": [
+            {"term": t, "count": c, "examples": examples_unsupported[t]}
+            for t, c in unsupported_terms.most_common(50)
+        ],
+        "top_absent_hits": [
+            {"phrase": p, "count": c, "examples": examples_absent[p]}
+            for p, c in absent_hits.most_common(30)
+        ],
+        "top_phrase_candidates": [
+            {"phrase": p, "count": c}
+            for p, c in phrase_candidates.most_common(100)
+        ],
+        "parser_miss_candidates": parser_miss_candidates[:30]
+    }
+
+    return report
+
+
+def group_records_by_model(records: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    grouped = defaultdict(list)
+    for rec in records:
+        model = rec.get("model_name")
+        if model:
+            grouped[model].append(rec)
+    return grouped
+
+
+def main(model_profiles_path: str, records_jsonl_path: str, out_dir: str) -> None:
+    profiles = load_json(model_profiles_path)
+    records = load_jsonl(records_jsonl_path)
+
+    global_terms = global_term_set(profiles.get("global_netlogo", {}))
+    grouped = group_records_by_model(records)
+
+    all_reports = {}
+
+    for model_name, profile in profiles["models"].items():
+        model_records = grouped.get(model_name, [])
+        report = analyze_model_records(model_name, model_records, profile, global_terms)
+        all_reports[model_name] = report
+        dump_json(report, str(Path(out_dir) / f"{model_name}.json"))
+
+    dump_json(all_reports, str(Path(out_dir) / "_all_models.json"))
+
+
+if __name__ == "__main__":
+    # Example:
+    # python build_model_audit.py model_profiles.json all_records.jsonl model_audit_reports
+    import sys
+    main(sys.argv[1], sys.argv[2], sys.argv[3])
+```
+
+---
+
+# 5. Input record preparation
+
+The audit script expects one unified `all_records.jsonl`.
+
+A useful normalized record format is:
+
+```json
+{"model_name":"shepherds","question":"...","answer":"...","source":"corpus"}
+{"model_name":"shepherds","question":"...","answer":"...","source":"seed"}
+{"model_name":"shepherds","question":"...","answer":"...","source":"accepted_synth"}
+{"model_name":"shepherds","question":"...","answer":"...","source":"rejected_synth"}
+```
+
+If your seed text lives in `corpus_combined.jsonl` and `synth_plan.json` only points to it, do the join first.
+
+---
+
+# 6. How to use the audit output
+
+For each model report, review:
+
+## `top_unsupported_terms`
+Ask:
+
+- is this a parser miss?
+- is this a soft alias?
+- is this a drift term?
+
+## `top_absent_hits`
+These are your common hallucination themes.
+
+## `parser_miss_candidates`
+These are unsupported terms frequent enough to deserve inspection.
+
+---
+
+# 7. Updating `model_profiles.json`
+
+After review, update per model:
+
+## If term is truly in source
+Move it into `hard`
+
+## If term is a useful paraphrase
+Put it in:
+
+- `soft.concepts_present`
+- or `soft.concept_aliases`
+
+## If term is false but recurring
+Put it in:
+
+- `negative.absent_concepts`
+
+---
+
+# 8. Seed routing function
+
+Once you have `model_profiles.json`, route each seed before prompting.
+
+Here is a lightweight version.
+
+```python
+def route_seed(question: str, answer: str, model_profile: dict, global_terms: set) -> dict:
+    text = f"{question}\n{answer}"
+
+    model_terms = hard_term_set(model_profile)
+    absent_concepts = model_profile.get("negative", {}).get("absent_concepts", [])
+    concepts_present = [norm(x) for x in model_profile.get("soft", {}).get("concepts_present", [])]
+    model_summary = norm(model_profile.get("soft", {}).get("model_summary", ""))
+
+    exact_terms = extract_exact_terms(text)
+    extracted = list(exact_terms.keys())
+
+    supported = [t for t in extracted if t in model_terms or t in global_terms]
+    unsupported = [t for t in extracted if t not in model_terms and t not in global_terms]
+
+    absent_hits = list(find_absent_hits(text, absent_concepts).keys())
+
+    tnorm = norm(text)
+    present_hits = []
+    for c in concepts_present:
+        if c in tnorm:
+            present_hits.append(c)
+    if model_summary and any(tok in model_summary for tok in extracted):
+        present_hits.append("summary_overlap")
+
+    unsupported_ratio = len(unsupported) / max(1, len(extracted))
+
+    if len(absent_hits) == 0 and unsupported_ratio <= 0.15 and len(present_hits) >= 1:
+        route = "strict_paraphrase"
+    elif len(absent_hits) <= 2 and (len(present_hits) >= 1 or unsupported_ratio <= 0.5):
+        route = "grounded_rewrite"
+    else:
+        route = "skip"
+
+    return {
+        "route": route,
+        "supported_terms": supported,
+        "unsupported_terms": unsupported,
+        "absent_hits": absent_hits,
+        "present_hits": present_hits,
+        "unsupported_ratio": unsupported_ratio
+    }
+```
+
+---
+
+# 9. Recommended operating rule
+
+For the 31 models:
+
+- build hard invariants once from source
+- audit all seeds/corpus by model
+- review top mismatches
+- maintain one `model_profiles.json`
+- route seeds before prompting
+
+That will fix most of the rejection loop.
+
+---
+
+# 10. Minimal version if you want to move fast
+
+If you want the smallest working system, do this:
+
+## Keep these fields only
+- `procedures`
+- `globals`
+- `breeds`
+- `widgets`
+- `model_summary`
+- `concepts_present`
+- `absent_concepts`
+
+## Run the audit script
+## Review top 20 unsupported terms per model
+## Add routing
+
+That alone is a major improvement.
+

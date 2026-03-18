@@ -1,0 +1,1095 @@
+Below is a Phase 2 implementation package in the same style as Phases 0–1.
+
+It includes:
+
+- `qa_system_v2bis/synthetic_v2/nlogo_parser.py`
+- `qa_system_v2bis/synthetic_v2/interface_parser.py`
+- `qa_system_v2bis/synthetic_v2/build_model_profiles.py`
+
+This gives you:
+
+- source-derived `core` profiles from `.nlogo`
+- section splitting
+- code parsing for procedures, breeds, globals, own-variables
+- interface widget extraction
+- unresolved identifier inference from code
+- optional diff vs existing invariants
+- `core_profiles.json`
+
+---
+
+# 1. `qa_system_v2bis/synthetic_v2/nlogo_parser.py`
+
+```python
+import re
+from collections import Counter
+from pathlib import Path
+from typing import Dict, List, Set, Tuple, Any
+
+SECTION_SEP = "@#$#@#$#@"
+
+# NetLogo-ish identifier
+ID = r"[A-Za-z_][A-Za-z0-9_\-]*\??"
+
+# Declarations
+BREED_RE = re.compile(rf"\bbreed\s*\[\s*({ID})\s+({ID})\s*\]", re.IGNORECASE)
+DIR_LINK_BREED_RE = re.compile(rf"\bdirected-link-breed\s*\[\s*({ID})\s+({ID})\s*\]", re.IGNORECASE)
+UNDIR_LINK_BREED_RE = re.compile(rf"\bundirected-link-breed\s*\[\s*({ID})\s+({ID})\s*\]", re.IGNORECASE)
+
+GLOBALS_RE = re.compile(r"\bglobals\s*\[(.*?)\]", re.IGNORECASE | re.DOTALL)
+TURTLES_OWN_RE = re.compile(r"\bturtles-own\s*\[(.*?)\]", re.IGNORECASE | re.DOTALL)
+PATCHES_OWN_RE = re.compile(r"\bpatches-own\s*\[(.*?)\]", re.IGNORECASE | re.DOTALL)
+LINKS_OWN_RE = re.compile(r"\blinks-own\s*\[(.*?)\]", re.IGNORECASE | re.DOTALL)
+BREED_OWN_RE = re.compile(rf"\b({ID})-own\s*\[(.*?)\]", re.IGNORECASE | re.DOTALL)
+
+# Procedure headers
+TO_HEADER_RE = re.compile(
+    rf"(?mi)^\s*to\s+({ID})(?:\s*\[(.*?)\])?"
+)
+TO_REPORT_HEADER_RE = re.compile(
+    rf"(?mi)^\s*to-report\s+({ID})(?:\s*\[(.*?)\])?"
+)
+
+LET_RE = re.compile(rf"\blet\s+({ID})\b", re.IGNORECASE)
+FOREACH_ARROW_RE = re.compile(rf"->\s*([A-Za-z_][A-Za-z0-9_\-]*\??(?:\s+[A-Za-z_][A-Za-z0-9_\-]*\??)*)")
+STRING_RE = re.compile(r'"([^"\n]*)"')
+TOKEN_RE = re.compile(ID)
+
+# First-pass NetLogo keywords and common primitives.
+# This is not exhaustive, but good enough for widget inference.
+NETLOGO_RESERVED = {
+    "to", "to-report", "end", "breed", "directed-link-breed", "undirected-link-breed",
+    "globals", "turtles-own", "patches-own", "links-own",
+    "extensions", "includes", "let", "set", "report", "if", "ifelse", "while",
+    "repeat", "foreach", "map", "reduce", "filter", "carefully", "stop", "tick",
+    "reset-ticks", "clear-all", "display", "wait", "show", "print", "type", "output-print",
+    "ask", "of", "with", "in-radius", "at-points", "one-of", "n-of", "up-to-n-of",
+    "min-one-of", "max-one-of", "sort-on", "sort-by", "count", "sum", "mean", "median",
+    "max", "min", "random", "random-float", "random-normal", "exp", "ln", "log", "sqrt",
+    "sin", "cos", "tan", "asin", "acos", "atan", "abs", "floor", "ceiling", "precision",
+    "round", "mod", "word", "sentence", "fput", "lput", "item", "length", "first", "last",
+    "butfirst", "butlast", "member?", "remove", "remove-duplicates", "position", "substring",
+    "patch", "patches", "turtle", "turtles", "link", "links", "nobody", "self", "myself",
+    "other", "patch-here", "patch-ahead", "patch-at", "patch-left-and-ahead", "patch-right-and-ahead",
+    "neighbors", "neighbors4", "turtles-here", "other-end", "in-link-neighbors", "out-link-neighbors",
+    "link-neighbors", "in-links", "out-links", "my-links", "create-link-with", "create-links-with",
+    "create-link-to", "create-links-to", "create-link-from", "create-links-from",
+    "create-temporary-plot-pen", "set-current-plot", "set-current-plot-pen", "plot", "histogram",
+    "create-turtles", "create-ordered-turtles", "sprout", "hatch", "die",
+    "move-to", "fd", "bk", "lt", "rt", "jump", "can-move?", "distance", "distancexy",
+    "towards", "towardsxy", "face", "facexy", "heading", "xcor", "ycor", "setxy",
+    "stamp", "pen-down", "pen-up", "home", "hide-turtle", "show-turtle",
+    "create-custom-turtles", "clear-drawing", "clear-output",
+    "subject", "observer", "is-agent?", "is-agentset?", "is-boolean?", "is-list?",
+    "is-number?", "is-string?", "is-turtle?", "is-patch?", "is-link?",
+    "new-seed", "random-seed", "behaviorspace-run-number", "ticks",
+    "user-message", "user-input", "mouse-xcor", "mouse-ycor", "mouse-down?",
+    "true", "false", "not", "and", "or", "xor",
+    "who", "breed", "shape", "size", "label", "label-color", "color", "pcolor",
+    "plabel", "plabel-color", "hidden?", "pen-size", "pen-mode",
+    "countdown", "timer", "reset-timer",
+    "black", "gray", "grey", "white", "red", "orange", "brown", "yellow", "green",
+    "lime", "turquoise", "cyan", "sky", "blue", "violet", "magenta", "pink",
+    "subject", "world-width", "world-height", "min-pxcor", "max-pxcor", "min-pycor", "max-pycor",
+}
+
+IGNORE_IN_STRING_LITERALS = {
+    "horizontal", "vertical", "n/a", "nil"
+}
+
+
+def split_nlogo_sections(text: str) -> Dict[str, Any]:
+    parts = text.split(SECTION_SEP)
+    code = parts[0] if len(parts) > 0 else ""
+    interface = parts[1] if len(parts) > 1 else ""
+    info = parts[2] if len(parts) > 2 else ""
+    extra = parts[3:] if len(parts) > 3 else []
+    return {
+        "code": code,
+        "interface": interface,
+        "info": info,
+        "extra": extra,
+    }
+
+
+def strip_netlogo_comments(code: str) -> str:
+    """
+    Remove ; comments while preserving quoted strings.
+    """
+    out = []
+    in_string = False
+    i = 0
+    while i < len(code):
+        ch = code[i]
+
+        if ch == '"':
+            in_string = not in_string
+            out.append(ch)
+            i += 1
+            continue
+
+        if ch == ";" and not in_string:
+            while i < len(code) and code[i] != "\n":
+                i += 1
+            continue
+
+        out.append(ch)
+        i += 1
+
+    return "".join(out)
+
+
+def parse_block_vars(block_text: str) -> List[str]:
+    return TOKEN_RE.findall(block_text)
+
+
+def normalize_identifier_list(xs: List[str]) -> List[str]:
+    return sorted(set(xs), key=lambda x: x.lower())
+
+
+def extract_breeds(code_nc: str) -> List[Dict[str, str]]:
+    breeds = []
+    for rx in [BREED_RE, DIR_LINK_BREED_RE, UNDIR_LINK_BREED_RE]:
+        for plural, singular in rx.findall(code_nc):
+            breeds.append({"plural": plural, "singular": singular})
+    # de-dup preserving first occurrence order
+    seen = set()
+    out = []
+    for b in breeds:
+        key = (b["plural"].lower(), b["singular"].lower())
+        if key not in seen:
+            seen.add(key)
+            out.append(b)
+    return out
+
+
+def extract_declared_vars(code_nc: str) -> Dict[str, Any]:
+    globals_ = []
+    turtles_own = []
+    patches_own = []
+    links_own = []
+    breed_own = {}
+
+    for block in GLOBALS_RE.findall(code_nc):
+        globals_.extend(parse_block_vars(block))
+
+    for block in TURTLES_OWN_RE.findall(code_nc):
+        turtles_own.extend(parse_block_vars(block))
+
+    for block in PATCHES_OWN_RE.findall(code_nc):
+        patches_own.extend(parse_block_vars(block))
+
+    for block in LINKS_OWN_RE.findall(code_nc):
+        links_own.extend(parse_block_vars(block))
+
+    for breed_name, block in BREED_OWN_RE.findall(code_nc):
+        lname = breed_name.lower()
+        if lname in {"turtles", "patches", "links"}:
+            continue
+        breed_own.setdefault(breed_name, [])
+        breed_own[breed_name].extend(parse_block_vars(block))
+
+    return {
+        "globals": normalize_identifier_list(globals_),
+        "turtles_own": normalize_identifier_list(turtles_own),
+        "patches_own": normalize_identifier_list(patches_own),
+        "links_own": normalize_identifier_list(links_own),
+        "breed_own": {k: normalize_identifier_list(v) for k, v in breed_own.items()}
+    }
+
+
+def extract_procedure_headers(code_nc: str) -> Dict[str, Any]:
+    procedures = []
+    procedure_inputs = {}
+    procedure_kinds = {}  # name -> "command" | "reporter"
+
+    for name, inputs in TO_HEADER_RE.findall(code_nc):
+        procedures.append(name)
+        procedure_kinds[name] = "command"
+        procedure_inputs[name] = parse_block_vars(inputs or "")
+
+    for name, inputs in TO_REPORT_HEADER_RE.findall(code_nc):
+        procedures.append(name)
+        procedure_kinds[name] = "reporter"
+        procedure_inputs[name] = parse_block_vars(inputs or "")
+
+    procedures = normalize_identifier_list(procedures)
+    return {
+        "procedures": procedures,
+        "procedure_inputs": {k: normalize_identifier_list(v) for k, v in procedure_inputs.items()},
+        "procedure_kinds": procedure_kinds,
+    }
+
+
+def extract_local_variables(code_nc: str) -> Dict[str, Any]:
+    let_vars = LET_RE.findall(code_nc)
+
+    lambda_vars = []
+    for chunk in FOREACH_ARROW_RE.findall(code_nc):
+        lambda_vars.extend(parse_block_vars(chunk))
+
+    return {
+        "let_vars": normalize_identifier_list(let_vars),
+        "lambda_vars": normalize_identifier_list(lambda_vars),
+    }
+
+
+def extract_string_literals(code_nc: str) -> List[str]:
+    vals = []
+    for s in STRING_RE.findall(code_nc):
+        s2 = s.strip()
+        if not s2:
+            continue
+        if s2.lower() in IGNORE_IN_STRING_LITERALS:
+            continue
+        vals.append(s2)
+    return sorted(set(vals), key=lambda x: x.lower())
+
+
+def all_identifiers_in_code(code: str) -> List[str]:
+    code_nc = strip_netlogo_comments(code)
+    return normalize_identifier_list(TOKEN_RE.findall(code_nc))
+
+
+def breed_generated_primitives(breeds: List[Dict[str, str]]) -> Set[str]:
+    out = set()
+    for b in breeds:
+        plural = b["plural"]
+        singular = b["singular"]
+
+        # Breed-generated creation and agentset reporters commonly used
+        out.add(f"create-{plural}")
+        out.add(f"{plural}-on")
+        out.add(f"{plural}-here")
+        out.add(f"is-{singular}?")
+        out.add(f"{singular}-set")
+    return {x.lower() for x in out}
+
+
+def infer_unresolved_identifiers(
+    code: str,
+    extracted_core: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Infer unresolved identifiers from code by subtracting:
+    - declared procedures, breeds, variables
+    - procedure inputs
+    - local let/lambda vars
+    - reserved primitives/keywords
+    - breed-generated primitives
+
+    Output is intentionally heuristic. These candidates should be reviewed.
+    """
+    code_nc = strip_netlogo_comments(code)
+    all_ids = TOKEN_RE.findall(code_nc)
+    freq = Counter([x.lower() for x in all_ids])
+
+    declared = set()
+    declared |= {x.lower() for x in extracted_core.get("procedures", [])}
+    declared |= {x.lower() for x in extracted_core.get("variables", [])}
+    declared |= {x.lower() for x in extracted_core.get("breeds", [])}
+
+    raw_parse = extracted_core.get("raw_parse", {})
+    for _, vals in raw_parse.get("procedure_inputs", {}).items():
+        declared |= {x.lower() for x in vals}
+    declared |= {x.lower() for x in raw_parse.get("let_vars", [])}
+    declared |= {x.lower() for x in raw_parse.get("lambda_vars", [])}
+
+    breeds_struct = raw_parse.get("breeds_struct", [])
+    reserved = {x.lower() for x in NETLOGO_RESERVED}
+    reserved |= breed_generated_primitives(breeds_struct)
+
+    unresolved = []
+    for tok, n in freq.items():
+        if tok in declared:
+            continue
+        if tok in reserved:
+            continue
+        # Skip obvious numeric pseudo-tokens if any slipped through
+        if tok.isdigit():
+            continue
+        unresolved.append((tok, n))
+
+    unresolved.sort(key=lambda x: (-x[1], x[0]))
+    return {
+        "unresolved_identifiers": [t for t, _ in unresolved],
+        "unresolved_identifier_counts": {t: n for t, n in unresolved},
+    }
+
+
+def first_info_paragraph(info: str) -> str:
+    """
+    Heuristic summary extractor from Info tab.
+    Tries to return the first paragraph that looks like prose, not a heading.
+    """
+    if not info:
+        return ""
+
+    paragraphs = []
+    buf = []
+    for line in info.splitlines():
+        if line.strip():
+            buf.append(line.strip())
+        else:
+            if buf:
+                paragraphs.append(" ".join(buf).strip())
+                buf = []
+    if buf:
+        paragraphs.append(" ".join(buf).strip())
+
+    def looks_like_heading(p: str) -> bool:
+        s = p.strip()
+        if not s:
+            return True
+        if s.startswith("#"):
+            return True
+        if len(s.split()) <= 4 and s.upper() == s:
+            return True
+        return False
+
+    for p in paragraphs:
+        if looks_like_heading(p):
+            continue
+        if len(p.split()) >= 8:
+            return p
+    return ""
+
+
+def fallback_summary(model_name: str, procedures: List[str], variables: List[str], breeds: List[str], widgets: List[str]) -> str:
+    parts = []
+    if breeds:
+        parts.append(f"breeds {', '.join(breeds[:4])}")
+    if procedures:
+        parts.append(f"procedures such as {', '.join(procedures[:5])}")
+    if variables:
+        parts.append(f"tracked variables like {', '.join(variables[:5])}")
+    if widgets:
+        parts.append(f"interface controls such as {', '.join(widgets[:5])}")
+
+    if parts:
+        return f"The original {model_name} model includes " + "; ".join(parts) + "."
+    return f"The original {model_name} model is a NetLogo model with source-derived identifiers."
+
+
+def extract_core_from_code(code: str) -> Dict[str, Any]:
+    code_nc = strip_netlogo_comments(code)
+
+    breeds_struct = extract_breeds(code_nc)
+    decl = extract_declared_vars(code_nc)
+    proc = extract_procedure_headers(code_nc)
+    locals_ = extract_local_variables(code_nc)
+    strings = extract_string_literals(code_nc)
+
+    variables = []
+    variables.extend(decl["globals"])
+    variables.extend(decl["turtles_own"])
+    variables.extend(decl["patches_own"])
+    variables.extend(decl["links_own"])
+    for _, vals in decl["breed_own"].items():
+        variables.extend(vals)
+
+    breed_names = []
+    for b in breeds_struct:
+        breed_names.append(b["plural"])
+        breed_names.append(b["singular"])
+
+    out = {
+        "procedures": proc["procedures"],
+        "breeds": normalize_identifier_list(breed_names),
+        "variables": normalize_identifier_list(variables),
+        "raw_parse": {
+            "globals": decl["globals"],
+            "turtles_own": decl["turtles_own"],
+            "patches_own": decl["patches_own"],
+            "links_own": decl["links_own"],
+            "breed_own": decl["breed_own"],
+            "procedure_inputs": proc["procedure_inputs"],
+            "procedure_kinds": proc["procedure_kinds"],
+            "let_vars": locals_["let_vars"],
+            "lambda_vars": locals_["lambda_vars"],
+            "string_literals": strings,
+            "breeds_struct": breeds_struct,
+        }
+    }
+    return out
+
+
+def parse_nlogo_code_only(path: str) -> Dict[str, Any]:
+    text = Path(path).read_text(encoding="utf-8")
+    sections = split_nlogo_sections(text)
+    core = extract_core_from_code(sections["code"])
+    return {
+        "sections": sections,
+        "core_extract": core,
+    }
+```
+
+---
+
+# 2. `qa_system_v2bis/synthetic_v2/interface_parser.py`
+
+```python
+import re
+from typing import Dict, List, Set, Any
+
+from .nlogo_parser import strip_netlogo_comments
+
+WIDGET_HEADERS = {
+    "GRAPHICS-WINDOW",
+    "BUTTON",
+    "PLOT",
+    "TEXTBOX",
+    "CHOOSER",
+    "SLIDER",
+    "SWITCH",
+    "MONITOR",
+    "INPUTBOX",
+    "OUTPUT",
+    "CC-WINDOW",
+}
+
+CONTROL_WIDGETS = {"SLIDER", "SWITCH", "CHOOSER", "INPUTBOX"}
+
+IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_\-]*\??$")
+NUMBER_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
+
+IGNORED_WIDGET_TOKENS = {
+    "nil", "horizontal", "vertical", "observer", "turtle", "patch", "link",
+    "true", "false"
+}
+
+
+def split_interface_blocks(interface_text: str) -> List[List[str]]:
+    """
+    Split an Interface section into widget blocks.
+    Each block starts with a known widget header line.
+    """
+    lines = [x.rstrip("\n") for x in interface_text.splitlines()]
+    blocks = []
+    current = []
+
+    for line in lines:
+        s = line.strip()
+        if s in WIDGET_HEADERS:
+            if current:
+                blocks.append(current)
+            current = [s]
+        else:
+            if current:
+                current.append(line)
+    if current:
+        blocks.append(current)
+
+    return blocks
+
+
+def is_identifier_line(s: str) -> bool:
+    s = s.strip()
+    if not s:
+        return False
+    if NUMBER_RE.match(s):
+        return False
+    if s.lower() in IGNORED_WIDGET_TOKENS:
+        return False
+    return bool(IDENT_RE.match(s))
+
+
+def candidate_identifiers_from_block(block: List[str]) -> List[str]:
+    cands = []
+    for line in block[1:]:
+        s = line.strip()
+        if is_identifier_line(s):
+            cands.append(s)
+    return cands
+
+
+def choose_control_variable(kind: str, block: List[str]) -> str:
+    """
+    Heuristic:
+    - For SLIDER/SWITCH/CHOOSER/INPUTBOX the block often contains:
+      [label, variable-name, ...]
+    - So use second identifier-like candidate if present, else first.
+    """
+    cands = candidate_identifiers_from_block(block)
+    if not cands:
+        return ""
+
+    if kind in CONTROL_WIDGETS:
+        if len(cands) >= 2:
+            return cands[1]
+        return cands[0]
+
+    return ""
+
+
+def extract_widgets_from_interface(interface_text: str) -> Dict[str, Any]:
+    """
+    Extract likely control/widget variable names from the Interface tab.
+    Focuses on controls, not all widget labels.
+    """
+    blocks = split_interface_blocks(interface_text)
+
+    widgets = []
+    by_type = {}
+
+    for block in blocks:
+        kind = block[0]
+        var_name = choose_control_variable(kind, block)
+        if var_name:
+            widgets.append(var_name)
+            by_type.setdefault(kind, []).append(var_name)
+
+    # de-dup preserving insertion order
+    seen = set()
+    out = []
+    for w in widgets:
+        lw = w.lower()
+        if lw not in seen:
+            seen.add(lw)
+            out.append(w)
+
+    # de-dup by type too
+    by_type_dedup = {}
+    for k, vals in by_type.items():
+        seen = set()
+        tmp = []
+        for v in vals:
+            lv = v.lower()
+            if lv not in seen:
+                seen.add(lv)
+                tmp.append(v)
+        by_type_dedup[k] = tmp
+
+    return {
+        "widgets": out,
+        "widgets_by_type": by_type_dedup,
+        "block_count": len(blocks),
+    }
+
+
+def merge_widget_sets(interface_widgets: List[str], inferred_widgets: List[str]) -> List[str]:
+    seen = set()
+    out = []
+    for x in list(interface_widgets) + list(inferred_widgets):
+        lx = x.lower()
+        if lx not in seen:
+            seen.add(lx)
+            out.append(x)
+    return sorted(out, key=lambda x: x.lower())
+
+
+def infer_candidate_widgets_from_code(
+    code: str,
+    extracted_core: Dict[str, Any],
+    unresolved_identifiers: List[str],
+    unresolved_counts: Dict[str, int],
+) -> Dict[str, Any]:
+    """
+    Infer likely interface/global widgets from unresolved identifiers.
+
+    Heuristics:
+    - identifier-like
+    - not local or declared (already enforced by unresolved list)
+    - prefer hyphenated names, predicate-like names, and frequently used names
+    - prefer identifiers referenced more than once
+    """
+    candidates = []
+    reasons = {}
+
+    # common signals of interface globals in NetLogo models
+    def score(tok: str, count: int) -> int:
+        s = 0
+        if "-" in tok:
+            s += 3
+        if tok.endswith("?"):
+            s += 2
+        if count >= 2:
+            s += 2
+        if any(tok.startswith(prefix) for prefix in [
+            "initial-", "num-", "max-", "min-", "show-", "plot-", "vision", "movement"
+        ]):
+            s += 2
+        if tok in {"vision", "visualization"}:
+            s += 2
+        return s
+
+    for tok in unresolved_identifiers:
+        n = unresolved_counts.get(tok, 1)
+        sc = score(tok, n)
+        if sc >= 3:
+            candidates.append(tok)
+            reasons[tok] = {
+                "count": n,
+                "score": sc
+            }
+
+    # de-dup / stable sort
+    candidates = sorted(set(candidates), key=lambda x: (-reasons[x]["score"], -reasons[x]["count"], x))
+
+    return {
+        "widget_candidates": candidates,
+        "candidate_reasons": reasons
+    }
+```
+
+---
+
+# 3. `qa_system_v2bis/synthetic_v2/build_model_profiles.py`
+
+```python
+import argparse
+from pathlib import Path
+from typing import Dict, List, Any
+
+from .io_utils import load_json, save_json
+from .text_utils import normalize_model_name
+from .nlogo_parser import (
+    split_nlogo_sections,
+    extract_core_from_code,
+    infer_unresolved_identifiers,
+    first_info_paragraph,
+    fallback_summary,
+)
+from .interface_parser import (
+    extract_widgets_from_interface,
+    infer_candidate_widgets_from_code,
+    merge_widget_sets,
+)
+
+
+def parse_nlogo_file(path: str, model_name: str = None) -> Dict[str, Any]:
+    text = Path(path).read_text(encoding="utf-8")
+    sections = split_nlogo_sections(text)
+
+    code = sections["code"]
+    interface = sections["interface"]
+    info = sections["info"]
+
+    core_extract = extract_core_from_code(code)
+
+    unresolved = infer_unresolved_identifiers(code, core_extract)
+
+    interface_parse = extract_widgets_from_interface(interface)
+    inferred_widgets = infer_candidate_widgets_from_code(
+        code=code,
+        extracted_core=core_extract,
+        unresolved_identifiers=unresolved["unresolved_identifiers"],
+        unresolved_counts=unresolved["unresolved_identifier_counts"],
+    )
+
+    widgets = merge_widget_sets(
+        interface_parse["widgets"],
+        inferred_widgets["widget_candidates"]
+    )
+
+    if model_name is None:
+        model_name = normalize_model_name(Path(path).stem)
+    else:
+        model_name = normalize_model_name(model_name)
+
+    summary = first_info_paragraph(info)
+    if not summary:
+        summary = fallback_summary(
+            model_name=model_name,
+            procedures=core_extract["procedures"],
+            variables=core_extract["variables"],
+            breeds=core_extract["breeds"],
+            widgets=widgets,
+        )
+
+    profile = {
+        "model_name": model_name,
+        "core": {
+            "procedures": core_extract["procedures"],
+            "variables": core_extract["variables"],
+            "breeds": core_extract["breeds"],
+            "widgets": widgets,
+            "model_summary": summary,
+        },
+        "raw_parse": {
+            **core_extract["raw_parse"],
+            "interface_widgets": interface_parse["widgets"],
+            "widgets_by_type": interface_parse["widgets_by_type"],
+            "widget_candidates_from_code": inferred_widgets["widget_candidates"],
+            "widget_candidate_reasons": inferred_widgets["candidate_reasons"],
+            "unresolved_identifiers": unresolved["unresolved_identifiers"],
+            "unresolved_identifier_counts": unresolved["unresolved_identifier_counts"],
+            "info_excerpt": info[:1000],
+            "source_path": str(path),
+        }
+    }
+    return profile
+
+
+def scan_model_files(model_dir: str) -> List[Path]:
+    return sorted(Path(model_dir).rglob("*.nlogo"))
+
+
+def build_core_profiles(model_dir: str) -> Dict[str, Any]:
+    model_files = scan_model_files(model_dir)
+
+    out = {
+        "meta": {
+            "source": str(model_dir),
+            "model_count": 0,
+        },
+        "models": {}
+    }
+
+    for path in model_files:
+        profile = parse_nlogo_file(str(path))
+        model_name = profile["model_name"]
+        out["models"][model_name] = profile
+
+    out["meta"]["model_count"] = len(out["models"])
+    return out
+
+
+def compare_list_fields(parsed: List[str], existing: List[str]) -> Dict[str, List[str]]:
+    p = {x.lower(): x for x in parsed or []}
+    e = {x.lower(): x for x in existing or []}
+
+    only_parsed = [p[k] for k in sorted(set(p) - set(e))]
+    only_existing = [e[k] for k in sorted(set(e) - set(p))]
+    common = [p[k] for k in sorted(set(p) & set(e))]
+
+    return {
+        "only_parsed": only_parsed,
+        "only_existing": only_existing,
+        "common": common
+    }
+
+
+def compare_profiles_to_existing(core_profiles: Dict[str, Any], existing_invariants: Dict[str, Any]) -> Dict[str, Any]:
+    report = {
+        "models": {},
+        "summary": {
+            "missing_in_existing": 0,
+            "missing_in_parsed": 0,
+            "shared_models": 0,
+            "parsed_only_models": 0,
+            "existing_only_models": 0,
+        }
+    }
+
+    parsed_models = set(core_profiles["models"].keys())
+    existing_models = {normalize_model_name(k) for k in existing_invariants.keys()}
+
+    report["summary"]["shared_models"] = len(parsed_models & existing_models)
+    report["summary"]["parsed_only_models"] = len(parsed_models - existing_models)
+    report["summary"]["existing_only_models"] = len(existing_models - parsed_models)
+
+    for model_name, parsed_prof in core_profiles["models"].items():
+        existing = None
+
+        # existing invariants may use original key capitalization
+        for k, v in existing_invariants.items():
+            if normalize_model_name(k) == model_name:
+                existing = v
+                break
+
+        if existing is None:
+            report["models"][model_name] = {
+                "status": "parsed_only",
+                "parsed_core": parsed_prof["core"]
+            }
+            continue
+
+        parsed_core = parsed_prof["core"]
+
+        cmp = {
+            "status": "shared",
+            "procedures": compare_list_fields(parsed_core.get("procedures", []), existing.get("procedures", [])),
+            "variables": compare_list_fields(parsed_core.get("variables", []), existing.get("variables", [])),
+            "breeds": compare_list_fields(parsed_core.get("breeds", []), existing.get("breeds", [])),
+            "widgets": compare_list_fields(parsed_core.get("widgets", []), existing.get("widgets", [])),
+        }
+
+        missing_in_existing = (
+            len(cmp["procedures"]["only_parsed"]) +
+            len(cmp["variables"]["only_parsed"]) +
+            len(cmp["breeds"]["only_parsed"]) +
+            len(cmp["widgets"]["only_parsed"])
+        )
+        missing_in_parsed = (
+            len(cmp["procedures"]["only_existing"]) +
+            len(cmp["variables"]["only_existing"]) +
+            len(cmp["breeds"]["only_existing"]) +
+            len(cmp["widgets"]["only_existing"])
+        )
+
+        report["summary"]["missing_in_existing"] += missing_in_existing
+        report["summary"]["missing_in_parsed"] += missing_in_parsed
+
+        report["models"][model_name] = cmp
+
+    # existing only models
+    for k, v in existing_invariants.items():
+        nk = normalize_model_name(k)
+        if nk not in parsed_models:
+            report["models"][nk] = {
+                "status": "existing_only",
+                "existing_invariant": v
+            }
+
+    return report
+
+
+def summarize_widget_candidates(core_profiles: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Convenience report for manual review.
+    """
+    out = {}
+    for model_name, prof in core_profiles["models"].items():
+        rp = prof.get("raw_parse", {})
+        out[model_name] = {
+            "interface_widgets": rp.get("interface_widgets", []),
+            "widget_candidates_from_code": rp.get("widget_candidates_from_code", []),
+            "unresolved_identifiers_top20": rp.get("unresolved_identifiers", [])[:20],
+        }
+    return out
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model-dir", required=True, help="Directory containing .nlogo files")
+    parser.add_argument("--out", required=True, help="Output core_profiles.json")
+    parser.add_argument("--existing-invariants", default=None, help="Optional path to existing model_invariants.json")
+    parser.add_argument("--diff-out", default=None, help="Optional output path for diff report against existing invariants")
+    parser.add_argument("--widget-review-out", default=None, help="Optional output path for widget candidate review report")
+    args = parser.parse_args()
+
+    core_profiles = build_core_profiles(args.model_dir)
+    save_json(core_profiles, args.out)
+
+    if args.widget_review_out:
+        widget_report = summarize_widget_candidates(core_profiles)
+        save_json(widget_report, args.widget_review_out)
+
+    if args.existing_invariants and args.diff_out:
+        existing = load_json(args.existing_invariants)
+        diff_report = compare_profiles_to_existing(core_profiles, existing)
+        save_json(diff_report, args.diff_out)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+---
+
+# 4. What this Phase 2 code does
+
+This implementation gives you a practical source-derived profile builder.
+
+## It extracts from code:
+- `procedures`
+- `breeds`
+- `variables` as the union of:
+  - globals
+  - turtles-own
+  - patches-own
+  - links-own
+  - breed-own
+
+## It also stores raw parse details:
+- `globals`
+- `turtles_own`
+- `patches_own`
+- `links_own`
+- `breed_own`
+- `procedure_inputs`
+- `procedure_kinds`
+- `let_vars`
+- `lambda_vars`
+- `string_literals`
+- `breeds_struct`
+
+## It extracts widgets by two methods:
+1. direct Interface tab parsing
+2. unresolved identifier inference from code
+
+and merges them.
+
+## It also builds:
+- `core.model_summary` from the Info tab first paragraph, if available
+- otherwise a fallback summary
+
+---
+
+# 5. Example output shape
+
+A parsed profile for `rebellion` should look roughly like this:
+
+```json
+{
+  "meta": {
+    "source": "path/to/models",
+    "model_count": 31
+  },
+  "models": {
+    "rebellion": {
+      "model_name": "rebellion",
+      "core": {
+        "procedures": [
+          "determine-behavior",
+          "display-agent",
+          "display-agent-2d",
+          "display-agent-3d",
+          "display-cop",
+          "enforce",
+          "estimated-arrest-probability",
+          "go",
+          "grievance",
+          "move",
+          "setup"
+        ],
+        "variables": [
+          "active?",
+          "jail-term",
+          "k",
+          "neighborhood",
+          "perceived-hardship",
+          "risk-aversion",
+          "threshold"
+        ],
+        "breeds": [
+          "agents",
+          "an-agent",
+          "cop",
+          "cops"
+        ],
+        "widgets": [
+          "government-legitimacy",
+          "initial-agent-density",
+          "initial-cop-density",
+          "max-jail-term",
+          "movement?",
+          "vision",
+          "visualization"
+        ],
+        "model_summary": "..."
+      },
+      "raw_parse": {
+        "globals": ["k", "threshold"],
+        "patches_own": ["neighborhood"],
+        "breed_own": {
+          "agents": [
+            "risk-aversion",
+            "perceived-hardship",
+            "active?",
+            "jail-term"
+          ]
+        },
+        "interface_widgets": [...],
+        "widget_candidates_from_code": [...],
+        "unresolved_identifiers": [...],
+        "source_path": "..."
+      }
+    }
+  }
+}
+```
+
+---
+
+# 6. Example command
+
+To build core profiles:
+
+```bash
+python -m qa_system_v2bis.synthetic_v2.build_model_profiles \
+  --model-dir path/to/netlogo_models \
+  --out artifacts/model_profiles/core_profiles.json
+```
+
+To also compare against your current invariant file and produce a widget review report:
+
+```bash
+python -m qa_system_v2bis.synthetic_v2.build_model_profiles \
+  --model-dir path/to/netlogo_models \
+  --out artifacts/model_profiles/core_profiles.json \
+  --existing-invariants qa_system/phase3/artifacts/model_invariants.json \
+  --diff-out artifacts/model_profiles/core_profile_diff_report.json \
+  --widget-review-out artifacts/model_profiles/widget_review_report.json
+```
+
+---
+
+# 7. What to review manually after running this
+
+After Phase 2, do a quick manual review for each model, especially the 31 production models.
+
+## For each model, inspect:
+### `core.procedures`
+- are all important procedures present?
+
+### `core.variables`
+- do globals and own-vars look right?
+
+### `core.widgets`
+- did it recover interface globals properly?
+- are there obvious false positives?
+
+### `raw_parse.unresolved_identifiers`
+- top unresolveds should mostly be:
+  - real widget candidates
+  - parser misses
+  - or things you later classify as extension concepts
+
+### `core_profile_diff_report.json`
+- if existing invariants have identifiers missing from parsed profiles, investigate
+- if parsed profiles have many new identifiers, this may mean your old invariants were incomplete
+
+---
+
+# 8. Known limitations of this Phase 2 parser
+
+This implementation is good enough for profile bootstrapping, but it is intentionally heuristic.
+
+## Limitations
+### Interface parsing is heuristic
+NetLogo widget blocks vary by version. This parser focuses on:
+- `SLIDER`
+- `SWITCH`
+- `CHOOSER`
+- `INPUTBOX`
+
+That usually recovers the important control variables, but not perfectly.
+
+### Unresolved identifier inference may still include noise
+Even with local var filtering and primitive filtering, some candidates may still be:
+- custom locals
+- uncommon primitives
+- breed-generated helpers not subtracted
+
+That is why:
+- `widget_review_report.json`
+- and the later corpus audit
+are important.
+
+### Procedure body parsing is shallow
+This parser does not build a full AST. It uses regexes + heuristics.
+
+For your use case, that is usually enough.
+
+---
+
+# 9. Why this is the right next step
+
+With Phase 2 complete, you now have:
+
+- normalized seeds and corpus
+- source-derived core profiles
+- optional diff against old invariants
+
+That sets up Phase 3 cleanly:
+
+## Next phase
+Audit the normalized corpus/seeds against `core_profiles.json` to identify:
+- parser misses
+- extension-family candidates
+- frequent unsupported drift terms
+
+---
+

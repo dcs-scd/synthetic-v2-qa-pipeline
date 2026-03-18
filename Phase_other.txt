@@ -1,0 +1,936 @@
+Great — the most useful next step is to make `synthetic_v2` usable with your existing stack, not just as a parallel prototype.
+
+So below I’ll give you all three:
+
+1. **production adapter layer**
+2. **test plan + unit test skeletons**
+3. **migration/patch guide for `run_500k_synthetic.py`**
+
+---
+
+# 1. Production adapter layer
+
+The goal is to connect `synthetic_v2` to your existing infrastructure without rewriting everything.
+
+You already have pieces like:
+
+- `qa_system_v2bis/llm/rotating_clients.py`
+- `qa_system_v2bis/homotopy_search/acceptance_gating.py`
+- existing FAISS / embedding artifacts
+- existing dedup machinery
+
+So the clean approach is:
+
+- keep `synthetic_v2` orchestration logic
+- wrap existing systems behind thin adapters
+
+---
+
+## 1.1 Recommended new files
+
+Add these:
+
+```text
+qa_system_v2bis/synthetic_v2/
+  adapters/
+    __init__.py
+    llm_adapter.py
+    embedding_adapter.py
+    question_similarity_adapter.py
+```
+
+---
+
+## 1.2 `llm_adapter.py`
+
+This should adapt your existing rotating LLM client API to the interface expected by `run_synthetic_v2.py`:
+
+```python
+class RealLLMClient:
+    def generate(self, prompt: str, seed_row: dict) -> str:
+        ...
+```
+
+### Suggested implementation
+
+```python
+# qa_system_v2bis/synthetic_v2/adapters/llm_adapter.py
+
+from typing import Dict, Any
+
+
+class RotatingClientAdapter:
+    """
+    Adapter around qa_system_v2bis.llm.rotating_clients
+    Expected output: raw text string from the LLM.
+    """
+
+    def __init__(self, client):
+        self.client = client
+
+    def generate(self, prompt: str, seed_row: Dict[str, Any]) -> str:
+        """
+        Replace the body below with the actual call pattern used by your rotating client.
+        """
+        # Example pseudo-call:
+        # resp = self.client.complete(
+        #     prompt=prompt,
+        #     temperature=0.4,
+        #     max_tokens=1200,
+        #     metadata={
+        #         "seed_id": seed_row.get("seed_id"),
+        #         "model_name": seed_row.get("model_name"),
+        #         "route_mode": seed_row.get("route_mode"),
+        #         "extension_family": seed_row.get("extension_family"),
+        #     }
+        # )
+        # return resp["text"]
+
+        raise NotImplementedError(
+            "Wire this adapter to qa_system_v2bis.llm.rotating_clients.py"
+        )
+```
+
+### What metadata to pass
+Always include:
+- `seed_id`
+- `model_name`
+- `route_mode`
+- `extension_family`
+
+That will help debugging and provider-level analytics.
+
+---
+
+## 1.3 `embedding_adapter.py`
+
+This should wrap your existing embedding/FAISS stack.
+
+`synthetic_v2.gate1_embedding.run_gate1_embedding()` expects an object with:
+
+```python
+embed(text) -> vector
+search_best(vec, class_id=None) -> {"class_id": ..., "sim": ..., "margin": ...}
+threshold_for_class(class_id) -> float
+```
+
+### Suggested implementation
+
+```python
+# qa_system_v2bis/synthetic_v2/adapters/embedding_adapter.py
+
+from typing import Dict, Any
+
+
+class ExistingEmbeddingIndexAdapter:
+    """
+    Adapter around your current embedding + FAISS + class-threshold logic.
+    """
+
+    def __init__(self, backend):
+        self.backend = backend
+
+    def embed(self, text: str):
+        """
+        Replace this with your real embedding call, e.g. Gemini embedding.
+        """
+        # Example:
+        # return self.backend.embed_text(text)
+        raise NotImplementedError
+
+    def search_best(self, vec, class_id=None) -> Dict[str, Any]:
+        """
+        Replace this with your real KNN / representative search.
+        Must return:
+        {
+          "class_id": int,
+          "sim": float,
+          "margin": float
+        }
+        """
+        # Example:
+        # best = self.backend.search_question(vec, expected_class_id=class_id)
+        # return {
+        #   "class_id": best.class_id,
+        #   "sim": best.similarity,
+        #   "margin": best.margin,
+        # }
+        raise NotImplementedError
+
+    def threshold_for_class(self, class_id: int) -> float:
+        """
+        Replace with your class-specific or global threshold lookup.
+        """
+        # Example:
+        # return self.backend.thresholds.get(class_id, 0.78)
+        raise NotImplementedError
+```
+
+---
+
+## 1.4 `question_similarity_adapter.py`
+
+This adapts your near-dup question similarity backend for Gate 3.
+
+Expected interface:
+
+```python
+max_similarity(question: str) -> float
+add_question(question: str) -> None
+```
+
+### Suggested implementation
+
+```python
+# qa_system_v2bis/synthetic_v2/adapters/question_similarity_adapter.py
+
+class ExistingQuestionSimilarityAdapter:
+    """
+    Adapter around your existing FAISS or embedding-based near-dup system.
+    """
+
+    def __init__(self, backend):
+        self.backend = backend
+
+    def max_similarity(self, question: str) -> float:
+        """
+        Replace with real near-dup search against accepted questions.
+        """
+        # Example:
+        # return self.backend.max_question_similarity(question)
+        raise NotImplementedError
+
+    def add_question(self, question: str) -> None:
+        """
+        Replace with incremental insertion into the similarity backend.
+        """
+        # Example:
+        # self.backend.add_question(question)
+        raise NotImplementedError
+```
+
+---
+
+## 1.5 Production wiring helper
+
+Add one helper that creates runtime objects from your existing code.
+
+```python
+# qa_system_v2bis/synthetic_v2/adapters/__init__.py
+
+from .llm_adapter import RotatingClientAdapter
+from .embedding_adapter import ExistingEmbeddingIndexAdapter
+from .question_similarity_adapter import ExistingQuestionSimilarityAdapter
+```
+
+Then in a production runner:
+
+```python
+from qa_system_v2bis.synthetic_v2.adapters import (
+    RotatingClientAdapter,
+    ExistingEmbeddingIndexAdapter,
+    ExistingQuestionSimilarityAdapter,
+)
+from qa_system_v2bis.synthetic_v2.gate3_dedup import InMemoryDedupIndex
+
+# pseudo-code
+rotating_backend = ...  # build from rotating_clients.py
+embedding_backend = ... # build from existing acceptance_gating/faiss stack
+question_sim_backend = ... # existing question FAISS index
+
+llm_client = RotatingClientAdapter(rotating_backend)
+embedding_index = ExistingEmbeddingIndexAdapter(embedding_backend)
+dedup_index = InMemoryDedupIndex(
+    similarity_backend=ExistingQuestionSimilarityAdapter(question_sim_backend)
+)
+```
+
+---
+
+# 2. Test plan + unit test skeletons
+
+You now have enough moving pieces that testing matters a lot.
+
+I strongly recommend `pytest`.
+
+---
+
+## 2.1 Suggested test layout
+
+```text
+tests/
+  synthetic_v2/
+    test_prepare_inputs.py
+    test_nlogo_parser.py
+    test_extension_profile_builder.py
+    test_routing.py
+    test_prompt_builder.py
+    test_gate2_model_validation.py
+    test_gate3_dedup.py
+    test_run_synthetic_v2_smoke.py
+```
+
+---
+
+## 2.2 Core testing strategy
+
+### Unit tests
+Test each phase independently.
+
+### Smoke integration test
+Run 3–10 seeds through:
+- route
+- prompt
+- echo LLM
+- Gate 2
+- Gate 3
+
+### Golden examples
+Use known `rebellion` examples:
+- one valid core
+- one valid extension
+- one invalid extension misrepresentation
+
+---
+
+## 2.3 `test_routing.py`
+
+```python
+# tests/synthetic_v2/test_routing.py
+
+from qa_system_v2bis.synthetic_v2.routing import route_seed
+
+
+def test_rebellion_broadcast_media_routes_to_extension(rebellion_profile):
+    q = "How do I add a broadcast media layer that interacts with local networks in a NetLogo rebellion model?"
+    a = "Define `media-influence` and test a global signal."
+    result = route_seed(q, a, rebellion_profile)
+    assert result["route"] == "anchored_extension"
+    assert result["family"] == "broadcast_media"
+
+
+def test_rebellion_core_question_routes_to_core(rebellion_profile):
+    q = "How does the rebellion model decide whether agents become active?"
+    a = "Use `grievance`, `risk-aversion`, and `estimated-arrest-probability`."
+    result = route_seed(q, a, rebellion_profile)
+    assert result["route"] in {"core_paraphrase", "core_repair"}
+    assert result["family"] is None
+```
+
+---
+
+## 2.4 `test_prompt_builder.py`
+
+```python
+# tests/synthetic_v2/test_prompt_builder.py
+
+from qa_system_v2bis.synthetic_v2.prompt_builder import build_prompt
+
+
+def test_extension_prompt_mentions_selected_family_only(rebellion_profile, rebellion_extension_seed):
+    seed = {
+        **rebellion_extension_seed,
+        "route_mode": "anchored_extension",
+        "extension_family": "broadcast_media",
+    }
+    prompt = build_prompt(seed, rebellion_profile)
+    assert "extension_family: broadcast_media" in prompt
+    assert "ALLOWED EXTENSION FAMILY:" in prompt
+    assert "media-influence" in prompt
+    assert "homophily-index" not in prompt  # from another family
+
+
+def test_core_prompt_forbids_extensions(rebellion_profile, rebellion_core_seed):
+    seed = {
+        **rebellion_core_seed,
+        "route_mode": "core_paraphrase",
+        "extension_family": None,
+    }
+    prompt = build_prompt(seed, rebellion_profile)
+    assert "Do not add extensions" in prompt
+```
+
+---
+
+## 2.5 `test_gate2_model_validation.py`
+
+```python
+# tests/synthetic_v2/test_gate2_model_validation.py
+
+from qa_system_v2bis.synthetic_v2.gate2_model_validation import validate_gate2
+
+
+def test_valid_core_answer_passes(rebellion_profile):
+    q = "How does the rebellion model decide whether agents become active?"
+    a = (
+        "The decision is made through `determine-behavior`, where `grievance` minus "
+        "`risk-aversion` times `estimated-arrest-probability` exceeds `threshold`."
+    )
+    result = validate_gate2(q, a, mode="core_paraphrase", profile=rebellion_profile)
+    assert result["ok"] is True
+
+
+def test_extension_identifier_in_core_mode_fails(rebellion_profile):
+    q = "How does the rebellion model use media?"
+    a = "It uses `media-influence` to synchronize `agents`."
+    result = validate_gate2(q, a, mode="core_paraphrase", profile=rebellion_profile)
+    assert result["ok"] is False
+    assert result["reason"] in {"UNAPPROVED_EXTENSION_IDENTIFIER", "EXTENSION_CONTENT_IN_CORE_MODE"}
+
+
+def test_valid_broadcast_extension_passes(rebellion_profile):
+    q = "How could I extend the rebellion model with a broadcast signal?"
+    a = (
+        "To extend the original `rebellion` model, you could introduce a `media-signal` "
+        "that shifts `grievance`."
+    )
+    result = validate_gate2(
+        q, a,
+        mode="anchored_extension",
+        profile=rebellion_profile,
+        family_name="broadcast_media"
+    )
+    assert result["ok"] is True
+
+
+def test_extension_misrepresentation_fails(rebellion_profile):
+    q = "How does the rebellion model's media layer work?"
+    a = "The model already includes a `media-influence` slider."
+    result = validate_gate2(
+        q, a,
+        mode="anchored_extension",
+        profile=rebellion_profile,
+        family_name="broadcast_media"
+    )
+    assert result["ok"] is False
+    assert result["reason"] == "BASE_MODEL_MISREPRESENTATION"
+```
+
+---
+
+## 2.6 `test_gate3_dedup.py`
+
+```python
+# tests/synthetic_v2/test_gate3_dedup.py
+
+from qa_system_v2bis.synthetic_v2.gate3_dedup import InMemoryDedupIndex, run_gate3_dedup
+
+
+def test_exact_qa_dup_fails():
+    idx = InMemoryDedupIndex()
+    row = {"question": "What is X?", "answer": "X is Y."}
+    idx.add(row)
+
+    result = run_gate3_dedup("What is X?", "X is Y.", idx)
+    assert result["ok"] is False
+    assert result["reason"] == "EXACT_QA_DUP"
+
+
+def test_question_template_dup_fails():
+    idx = InMemoryDedupIndex()
+    row = {"question": "What is X?", "answer": "X is Y."}
+    idx.add(row)
+
+    result = run_gate3_dedup("What is X?", "Different answer", idx)
+    assert result["ok"] is False
+    assert result["reason"] == "QUESTION_TEMPLATE_DUP"
+```
+
+---
+
+## 2.7 `test_run_synthetic_v2_smoke.py`
+
+```python
+# tests/synthetic_v2/test_run_synthetic_v2_smoke.py
+
+from qa_system_v2bis.synthetic_v2.run_synthetic_v2 import generate_synthetic, EchoSeedLLMClient
+from qa_system_v2bis.synthetic_v2.gate1_embedding import AlwaysPassEmbeddingIndex
+from qa_system_v2bis.synthetic_v2.gate3_dedup import InMemoryDedupIndex
+
+
+def test_smoke_generation_runs(tmp_path, routed_rebellion_seed, model_profiles_merged):
+    accepted = tmp_path / "accepted.jsonl"
+    rejected = tmp_path / "rejected.jsonl"
+    telemetry = tmp_path / "telemetry.jsonl"
+
+    summary = generate_synthetic(
+        routed_seeds=[routed_rebellion_seed],
+        model_profiles=model_profiles_merged,
+        llm_client=EchoSeedLLMClient(),
+        embedding_index=AlwaysPassEmbeddingIndex(),
+        dedup_index=InMemoryDedupIndex(),
+        accepted_path=str(accepted),
+        rejected_path=str(rejected),
+        telemetry_path=str(telemetry),
+        limit=1
+    )
+
+    assert summary["total_events"] == 1
+```
+
+---
+
+## 2.8 Fixtures
+
+Create a `conftest.py` with a small handcrafted `rebellion_profile`.
+
+```python
+# tests/synthetic_v2/conftest.py
+
+import pytest
+
+
+@pytest.fixture
+def rebellion_profile():
+    return {
+        "model_name": "rebellion",
+        "core": {
+            "procedures": [
+                "determine-behavior", "estimated-arrest-probability", "grievance", "go", "setup"
+            ],
+            "variables": [
+                "active?", "grievance", "risk-aversion", "threshold", "jail-term"
+            ],
+            "breeds": [
+                "rebellion", "agents", "cops", "cop", "an-agent"
+            ],
+            "widgets": [
+                "government-legitimacy", "vision", "initial-agent-density", "initial-cop-density"
+            ],
+            "model_summary": "The original rebellion model explains when agents become active based on grievance and arrest risk."
+        },
+        "extensions": {
+            "families": [
+                {
+                    "name": "broadcast_media",
+                    "concepts": ["broadcast media", "global signal", "media influence"],
+                    "identifiers": ["media-influence", "social-influence-weight", "media-signal"],
+                    "rules": ["Must be framed as an added global influence."]
+                },
+                {
+                    "name": "network_layer",
+                    "concepts": ["social network links", "similar friends", "homophily"],
+                    "identifiers": ["homophily-index", "social-link-weight"],
+                    "rules": ["Must be framed as an added interaction layer."]
+                }
+            ],
+            "general_rules": [
+                "Extension content must remain anchored to the original model."
+            ],
+            "framing_cues": [
+                "to extend the original model",
+                "you could add",
+                "you could introduce",
+                "as an extension"
+            ],
+            "disallowed_unanchored_themes": [
+                "quantum mechanics"
+            ]
+        }
+    }
+
+
+@pytest.fixture
+def rebellion_core_seed():
+    return {
+        "seed_id": "TEST-REB-CORE-1",
+        "model_name": "rebellion",
+        "level": "L3",
+        "tier": "C",
+        "seed_q": "How does the rebellion model decide whether agents become active?",
+        "seed_a": "It compares grievance and arrest risk."
+    }
+
+
+@pytest.fixture
+def rebellion_extension_seed():
+    return {
+        "seed_id": "TEST-REB-EXT-1",
+        "model_name": "rebellion",
+        "level": "L3",
+        "tier": "C",
+        "seed_q": "How do I add a broadcast media layer to the rebellion model?",
+        "seed_a": "Use media influence and a global signal."
+    }
+
+
+@pytest.fixture
+def model_profiles_merged(rebellion_profile):
+    return {
+        "models": {
+            "rebellion": rebellion_profile
+        }
+    }
+
+
+@pytest.fixture
+def routed_rebellion_seed(rebellion_extension_seed):
+    return {
+        **rebellion_extension_seed,
+        "route_mode": "anchored_extension",
+        "extension_family": "broadcast_media",
+        "route_diagnostics": {}
+    }
+```
+
+---
+
+# 3. Migration / patch guide for `run_500k_synthetic.py`
+
+Now the practical part: how to graft `synthetic_v2` into the existing system.
+
+You have two choices.
+
+---
+
+## Option A: run `synthetic_v2` as a parallel runner
+Best for lower risk.
+
+### Pros
+- minimal disruption
+- easier debugging
+- compare old/new acceptance rates
+
+### Cons
+- duplicate orchestration code for a while
+
+If you want to move fast safely, do this first.
+
+---
+
+## Option B: patch the current runner to use the new routing/prompting/validation
+Best for long-term simplification.
+
+### Pros
+- one generation pipeline
+- easier operations
+- less duplicated code
+
+### Cons
+- riskier initial integration
+
+---
+
+# 4. Recommended migration path
+
+I recommend **two-stage migration**.
+
+## Stage 1
+Run `synthetic_v2` as a parallel pilot for 1k–10k examples.
+
+## Stage 2
+Patch `run_500k_synthetic.py` to use `synthetic_v2` modules internally.
+
+That gives you evidence before replacing the old logic.
+
+---
+
+# 5. Patch points in the current runner
+
+Based on your earlier file list, the current runner likely does:
+
+1. load seeds
+2. select task
+3. build prompt
+4. call LLM
+5. run old gates
+6. write outputs
+
+The patch points are:
+
+---
+
+## 5.1 Replace seed loading with routed seeds
+
+### Old
+Load `synth_plan.json`
+
+### New
+Load:
+- `seed_routes.jsonl`
+
+This gives you:
+- `route_mode`
+- `extension_family`
+- route diagnostics
+
+So task planning no longer needs to guess prompt mode.
+
+---
+
+## 5.2 Replace prompt construction
+
+### Old
+Likely one canonical prompt builder
+
+### New
+Use:
+
+```python
+from qa_system_v2bis.synthetic_v2.prompt_builder import build_prompt
+```
+
+Then:
+
+```python
+profile = model_profiles["models"][seed_row["model_name"]]
+prompt = build_prompt(seed_row, profile)
+```
+
+---
+
+## 5.3 Replace old invariant Gate 2
+
+### Old
+Source-only whitelist validator
+
+### New
+Use:
+
+```python
+from qa_system_v2bis.synthetic_v2.gate2_model_validation import validate_generated_row
+```
+
+Then:
+
+```python
+gate2 = validate_generated_row(
+    generated_row=qa_obj,
+    routed_seed_row=seed_row,
+    model_profiles=model_profiles
+)
+```
+
+This is the key fix.
+
+---
+
+## 5.4 Keep Gate 1 and Gate 3, but wrap them
+
+If your current Gate 1 and Gate 3 are already solid, do not rewrite them immediately.
+
+Instead:
+- wrap them behind the adapter interfaces expected by `synthetic_v2`
+
+That lets `synthetic_v2` orchestration call existing production code.
+
+---
+
+# 6. Minimal patch sketch for current runner
+
+Suppose your current `run_500k_synthetic.py` has a loop like:
+
+```python
+for seed in seeds:
+    prompt = old_build_prompt(seed)
+    raw = llm.generate(prompt)
+    qa = parse(raw)
+    gate1 = old_gate1(qa)
+    gate2 = old_gate2(qa)
+    gate3 = old_gate3(qa)
+```
+
+Patch it into:
+
+```python
+from qa_system_v2bis.synthetic_v2.prompt_builder import build_prompt
+from qa_system_v2bis.synthetic_v2.gate2_model_validation import validate_generated_row
+
+# load once
+model_profiles = load_json("artifacts/model_profiles/model_profiles_merged.json")
+routed_seeds = load_jsonl("artifacts/routing/seed_routes.jsonl")
+
+for seed_row in routed_seeds:
+    if seed_row["route_mode"] == "skip":
+        write_rejected(...)
+        continue
+
+    profile = model_profiles["models"][seed_row["model_name"]]
+    prompt = build_prompt(seed_row, profile)
+
+    raw = llm.generate(prompt, seed_row=seed_row)
+    parsed = parse_llm_json(raw)
+    if not parsed["ok"]:
+        write_rejected(...)
+        continue
+
+    qa = parsed["data"]
+
+    gate1 = old_gate1_adapter(qa["question"], seed_row["class_id"])
+    if not gate1["ok"]:
+        write_rejected(...)
+        continue
+
+    gate2 = validate_generated_row(
+        generated_row=qa,
+        routed_seed_row=seed_row,
+        model_profiles=model_profiles
+    )
+    if not gate2["ok"]:
+        write_rejected(...)
+        continue
+
+    gate3 = old_gate3_adapter(qa["question"], qa["answer"])
+    if not gate3["ok"]:
+        write_rejected(...)
+        continue
+
+    write_accepted(...)
+```
+
+This gets most of the benefit without fully rewriting your runner.
+
+---
+
+# 7. Production adapter integration sketch
+
+Here is the cleanest way to patch the current system with minimal code churn.
+
+---
+
+## 7.1 Add a small bridge module
+
+Create:
+
+```text
+qa_system_v2bis/synthetic_v2/production_runtime.py
+```
+
+Example:
+
+```python
+# qa_system_v2bis/synthetic_v2/production_runtime.py
+
+from qa_system_v2bis.synthetic_v2.adapters import (
+    RotatingClientAdapter,
+    ExistingEmbeddingIndexAdapter,
+    ExistingQuestionSimilarityAdapter,
+)
+from qa_system_v2bis.synthetic_v2.gate3_dedup import InMemoryDedupIndex
+
+def build_runtime(rotating_backend, embedding_backend, question_sim_backend):
+    llm_client = RotatingClientAdapter(rotating_backend)
+    embedding_index = ExistingEmbeddingIndexAdapter(embedding_backend)
+    dedup_index = InMemoryDedupIndex(
+        similarity_backend=ExistingQuestionSimilarityAdapter(question_sim_backend)
+    )
+    return {
+        "llm_client": llm_client,
+        "embedding_index": embedding_index,
+        "dedup_index": dedup_index,
+    }
+```
+
+Then your production runner just imports one builder.
+
+---
+
+# 8. Operational rollout plan
+
+Here’s the practical rollout sequence I recommend now that the code exists.
+
+---
+
+## Step 1: smoke test
+Run with:
+- `echo_seed`
+- `always_pass`
+- 100 seeds
+
+Goal:
+- confirm file I/O
+- prompt building
+- routing compatibility
+- Gate 2 behavior
+- telemetry
+
+---
+
+## Step 2: Gate 2 validation pilot
+Use:
+- `echo_seed`
+- real routed seeds
+
+This is useful because it shows whether routed seed content itself passes the intended validation logic.
+
+You will likely learn:
+- which seeds are routed too aggressively
+- which extension families need broader/narrower framing
+- which core profiles need updates
+
+---
+
+## Step 3: real LLM + always-pass embedding
+Run:
+- real LLM client
+- fake Gate 1
+- real Gate 2
+- real Gate 3
+
+Goal:
+- test prompt quality and mode logic
+
+---
+
+## Step 4: real LLM + real Gate 1 + real Gate 3
+Run 500–1,000 attempts.
+
+Measure:
+- acceptance rate
+- top rejection reasons
+- route-mode distribution
+- extension-family distribution
+
+---
+
+## Step 5: compare to old pipeline
+Compare:
+- acceptance rate
+- rejection codes
+- duplicate rate
+- useful extension coverage
+
+If the new system materially improves extension handling, then patch the main 500k run.
+
+---
+
+# 9. Highest-priority remaining work
+
+You now have all main phases implemented conceptually. The next highest-value work is not more architecture; it is:
+
+## A. Adapter wiring
+Connect:
+- rotating clients
+- FAISS/embedding search
+- near-dup question similarity
+
+## B. Manual extension specs
+Fill out high-value models first:
+- `rebellion`
+- `shepherds`
+- other top traffic / top rejection models
+
+## C. Routing evaluation
+Review a stratified sample of routed seeds.
+
+## D. Gate 2 tuning
+Tune:
+- framing detection
+- extension-family boundaries
+- overly strict concept rejection
+
+---
+
+# 10. Recommended concrete next action
+
+If you want the shortest path to a real pilot, do this next:
+
+1. create the adapter files  
+2. wire your real LLM into `RotatingClientAdapter`  
+3. wire your existing embedding system into `ExistingEmbeddingIndexAdapter`  
+4. run `synthetic_v2` on 200–500 routed seeds  
+
+That will tell you whether the new design is working.
+
+---
+

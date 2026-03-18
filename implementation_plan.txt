@@ -1,0 +1,869 @@
+Below is a detailed implementation plan for the extension-aware synthetic Q&A generation system. It is designed to fit your current setup:
+
+- 31 NetLogo models
+- ~6k seeds
+- ~26k corpus examples
+- target of 500k synthetic examples
+- current pipeline with prompting, embedding gate, invariant checks, and dedup
+
+The plan assumes you want to preserve two kinds of valid output:
+
+1. **core/model-faithful Q&A**
+2. **model-anchored extension Q&A**
+
+---
+
+# 1. Implementation goals
+
+## Primary goal
+Build a generation system that can produce large amounts of high-quality NetLogo Q&A while correctly handling both:
+
+- source-faithful model questions
+- coherent model extensions grounded in seeds/corpus
+
+## Secondary goals
+- reduce false rejections caused by strict source-only invariants
+- reduce hallucinations and cross-model drift
+- improve acceptance rate at scale
+- preserve diversity without blowing up dedup rejection rates
+- make failure modes observable by model, mode, and extension family
+
+---
+
+# 2. Core design decisions
+
+Before implementation, lock these decisions.
+
+## 2.1 Generation modes
+Use these four routing outcomes:
+
+- `core_paraphrase`
+- `core_repair`
+- `anchored_extension`
+- `skip`
+
+## 2.2 Validation regimes
+Use mode-aware validation:
+
+- core modes validate only against source-derived identifiers
+- extension mode validates against source-derived identifiers plus approved extension-family identifiers
+
+## 2.3 Profile layers
+Each model gets a profile with:
+
+- `core`
+- `extensions`
+
+## 2.4 Extension policy
+Extensions are accepted only if they are:
+
+- coherent
+- anchored to the original model
+- framed explicitly as additions/modifications
+- limited to approved families for that model
+
+---
+
+# 3. High-level architecture
+
+The final system has 6 major stages:
+
+1. **Source parsing**
+2. **Corpus/seed auditing**
+3. **Model profile construction**
+4. **Seed routing**
+5. **Generation + validation**
+6. **Monitoring + adaptive scheduling**
+
+---
+
+# 4. Implementation roadmap by phase
+
+I recommend implementing in 8 phases.
+
+---
+
+## Phase 0. Freeze policy and define artifacts
+
+### Objective
+Get alignment on what counts as valid output before writing code.
+
+### Tasks
+1. Write a short design doc defining:
+   - what `core_paraphrase` means
+   - what `core_repair` means
+   - what `anchored_extension` means
+   - when to `skip`
+2. Define the JSON schemas for:
+   - model profiles
+   - routed seeds
+   - accepted records
+   - rejected records
+3. Define standard rejection codes
+
+### Deliverables
+- `docs/synthetic_v2_design.md`
+- `qa_system_v2bis/synthetic_v2/schemas.py`
+
+### Acceptance criteria
+- Everyone agrees that extension examples are first-class valid outputs
+- Validation semantics are fixed enough that implementation won’t thrash
+
+---
+
+## Phase 1. Normalize and prepare all input data
+
+### Objective
+Create a clean, unified dataset for all later stages.
+
+### Tasks
+1. Build a normalization script that creates:
+   - a seed file with `seed_q` and `seed_a` included
+   - a unified `all_records.jsonl` for seeds + corpus
+2. Ensure every record includes:
+   - `model_name`
+   - `question`
+   - `answer`
+   - `source` (`seed`, `corpus`, `accepted_synth`, `rejected_synth`)
+3. Standardize model naming:
+   - lowercase model names
+   - e.g. `"Rebellion"` → `"rebellion"`
+4. Create a consistency report:
+   - missing `model_name`
+   - empty Q/A
+   - duplicate ids
+   - malformed rows
+
+### Deliverables
+- `artifacts/normalized/seeds_with_text.jsonl`
+- `artifacts/normalized/all_records.jsonl`
+- `artifacts/normalized/input_consistency_report.json`
+
+### Acceptance criteria
+- 100% of seeds and corpus rows used in generation have `model_name`
+- no malformed rows remain in the normalized input
+
+### Suggested module
+- `qa_system_v2bis/synthetic_v2/io_utils.py`
+- `qa_system_v2bis/synthetic_v2/prepare_inputs.py`
+
+---
+
+## Phase 2. Build source-derived core model profiles
+
+### Objective
+Extract the hard source-grounded invariants from each `.nlogo` file.
+
+### Tasks
+1. Implement `.nlogo` section splitting:
+   - code
+   - interface
+   - info
+2. Parse code for:
+   - procedures (`to`, `to-report`)
+   - breeds
+   - globals
+   - `turtles-own`
+   - `patches-own`
+   - `links-own`
+   - `<breed>-own`
+   - string literals
+3. Parse interface for widgets:
+   - sliders
+   - switches
+   - choosers
+   - input boxes
+   - monitor reporter candidates
+4. Add unresolved identifier inference:
+   - identifiers referenced in code but not declared
+   - use this to recover widget/global candidates
+5. Build `core_profiles.json`
+6. Compare parsed output against your current `model_invariants.json`
+7. Review parser misses manually for all 31 models
+
+### Deliverables
+- `qa_system_v2bis/synthetic_v2/nlogo_parser.py`
+- `qa_system_v2bis/synthetic_v2/interface_parser.py`
+- `qa_system_v2bis/synthetic_v2/build_model_profiles.py`
+- `artifacts/model_profiles/core_profiles.json`
+- `artifacts/model_profiles/core_profile_diff_report.json`
+
+### Acceptance criteria
+For each of the 31 models:
+- procedures are substantially complete
+- major variables are present
+- widgets used in code are present
+- parser misses are understood and documented
+
+### Manual review checklist per model
+- are the procedures complete?
+- are all important interface globals present?
+- are breed names correct?
+- are major state-like variables present?
+- are there string literals worth preserving?
+
+---
+
+## Phase 3. Audit seeds and corpus by model
+
+### Objective
+Use grouped seeds/corpus to identify:
+- parser misses
+- coherent extension families
+- drift themes
+- high-frequency topic neighborhoods
+
+### Tasks
+1. Group all normalized records by `model_name`
+2. Extract:
+   - backticked identifiers
+   - identifier-like tokens
+   - recurring concept phrases
+3. Compare terms to each model’s core profile
+4. Produce per-model audit report containing:
+   - top supported terms
+   - top unsupported terms
+   - top phrase candidates
+   - parser miss candidates
+5. Add examples for each high-frequency unsupported term
+6. Review the reports manually, model by model
+
+### Deliverables
+- `qa_system_v2bis/synthetic_v2/corpus_audit.py`
+- `artifacts/audit/per_model/*.json`
+- `artifacts/audit/summary.json`
+
+### Acceptance criteria
+For each model:
+- top unsupported terms are classified as:
+  - parser miss
+  - extension family candidate
+  - true drift
+- at least one human review pass is completed
+
+### Output decisions from review
+For each unsupported concept:
+- move to `core`
+- move to `extensions`
+- reject as invalid drift
+
+---
+
+## Phase 4. Build extension profiles
+
+### Objective
+Define approved extension families per model.
+
+### Tasks
+1. Create a hand-curated `manual_extension_specs.json`
+2. For each model, define extension families such as:
+   - `state_refinement`
+   - `network_layer`
+   - `broadcast_media`
+   - `long_range_links`
+   - `large_scale_optimization`
+   - `early_warning_metrics`
+3. For each family, define:
+   - concepts
+   - identifiers
+   - family rules
+4. Add shared extension metadata:
+   - framing cues
+   - general extension rules
+   - disallowed off-theme concepts
+5. Merge `core_profiles.json` and extension specs into:
+   - `model_profiles_merged.json`
+
+### Deliverables
+- `qa_system_v2bis/synthetic_v2/extension_profile_builder.py`
+- `artifacts/model_profiles/extension_profiles.json`
+- `artifacts/model_profiles/model_profiles_merged.json`
+
+### Acceptance criteria
+For priority models like `rebellion`, `shepherds`, etc.:
+- extension families match the actual semantic neighborhoods in seeds/corpus
+- example extension identifiers are realistic and bounded
+- extension rules are specific enough for validation
+
+### Practical recommendation
+Do this manually for the 10 most common/high-value models first, then extend to all 31.
+
+---
+
+## Phase 5. Implement seed routing
+
+### Objective
+Route each seed into the correct generation mode before prompting.
+
+### Tasks
+1. Implement `route_seed()`
+2. Use:
+   - core identifier overlap
+   - extension family overlap
+   - extension intent cues
+   - unknown term pressure
+3. Produce `seed_routes.jsonl` with:
+   - route mode
+   - family
+   - diagnostics
+4. Run routing over all seeds
+5. Manually review a stratified sample:
+   - 20 per model if feasible
+   - definitely review `rebellion` and other high-variance models
+6. Tune thresholds and heuristics
+
+### Deliverables
+- `qa_system_v2bis/synthetic_v2/routing.py`
+- `artifacts/routing/seed_routes.jsonl`
+- `artifacts/routing/routing_review_report.json`
+
+### Acceptance criteria
+On reviewed samples:
+- clean source-faithful seeds route to `core_paraphrase`
+- near-core noisy seeds route to `core_repair`
+- coherent extension seeds route to `anchored_extension`
+- obviously bad seeds route to `skip`
+
+### Important implementation detail
+Store route metadata with the seed so generation and validation do not need to infer it later.
+
+---
+
+## Phase 6. Build prompt system for all modes
+
+### Objective
+Generate prompts that are mode-aware and family-aware.
+
+### Tasks
+1. Implement three prompt builders:
+   - `build_core_prompt`
+   - `build_core_repair_prompt`
+   - `build_extension_prompt`
+2. For extension prompts, inject only:
+   - selected family
+   - its identifiers
+   - its concepts
+   - its rules
+3. Add strong framing instructions:
+   - do not present extension identifiers as existing source code
+   - use explicit extension language
+4. Add structure controls:
+   - exactly one hypothesis
+   - exactly one experiment
+   - exactly one limitation
+5. Add skip option only where appropriate:
+   - probably `core_repair`
+   - possibly not needed in extension mode if routing is good
+
+### Deliverables
+- `qa_system_v2bis/synthetic_v2/prompt_templates.py`
+- `qa_system_v2bis/synthetic_v2/prompt_builder.py`
+
+### Acceptance criteria
+On a test set of 50 prompts:
+- prompts reflect the selected mode correctly
+- extension prompts are constrained to one family
+- prompt text clearly distinguishes original model from extension
+
+### Recommended manual test
+For each mode, hand-inspect prompts for:
+- `rebellion`
+- `shepherds`
+- one simpler model
+- one network-ish model
+
+---
+
+## Phase 7. Implement mode-aware Gate 2 validation
+
+### Objective
+Replace strict source-only invariant checking with mode-aware validation.
+
+### Tasks
+1. Implement `validate_gate2()`
+2. In core modes:
+   - allow only core identifiers + NetLogo globals
+   - reject extension identifiers
+3. In extension mode:
+   - allow core identifiers + selected family identifiers + NetLogo globals
+   - reject cross-family extension identifiers
+   - require extension framing
+   - reject base-model misrepresentation
+   - require core anchoring
+4. Add rejection codes:
+   - `UNKNOWN_CORE_IDENTIFIER`
+   - `UNAPPROVED_EXTENSION_IDENTIFIER`
+   - `CROSS_FAMILY_EXTENSION_IDENTIFIER`
+   - `EXTENSION_REQUIRES_FRAMING`
+   - `BASE_MODEL_MISREPRESENTATION`
+   - `INSUFFICIENT_CORE_ANCHOR`
+   - `DISALLOWED_THEME`
+5. Create unit tests from known pass/fail examples
+
+### Deliverables
+- `qa_system_v2bis/synthetic_v2/gate2_model_validation.py`
+- `tests/test_gate2_model_validation.py`
+
+### Acceptance criteria
+Known cases pass/fail as intended:
+- valid base-model Q&A passes
+- valid extension Q&A passes
+- extension falsely presented as built-in fails
+- cross-family leakage fails
+- unsupported identifiers fail
+
+### Very important
+Do not over-police plain English at first. Start with:
+- backtick identifiers
+- explicit phrase checks
+- framing rules
+
+Then tighten only if needed.
+
+---
+
+## Phase 8. Integrate into orchestration pipeline
+
+### Objective
+Run the full route → prompt → LLM → gate1 → gate2 → gate3 process.
+
+### Tasks
+1. Create `run_synthetic_v2.py`
+2. Load:
+   - model profiles
+   - routed seeds
+   - embedding resources
+   - dedup resources
+3. For each scheduled task:
+   - build prompt
+   - call LLM
+   - parse JSON
+   - run gate1
+   - run gate2
+   - run gate3
+4. Write accepted/rejected rows with route metadata
+5. Add telemetry event logging:
+   - model_name
+   - class_id
+   - route_mode
+   - extension_family
+   - rejection reason
+6. Add quota-aware scheduling:
+   - per model
+   - per mode
+   - per family
+
+### Deliverables
+- `qa_system_v2bis/synthetic_v2/run_synthetic_v2.py`
+- `qa_system_v2bis/synthetic_v2/batch_scheduler.py`
+- `qa_system_v2bis/synthetic_v2/telemetry.py`
+
+### Acceptance criteria
+A dry run over 100 seeds completes end-to-end and writes:
+- accepted records
+- rejected records
+- telemetry
+
+---
+
+# 5. Testing plan
+
+You should not go straight to 500k. Use a staged test plan.
+
+---
+
+## 5.1 Unit tests
+
+### Parser tests
+For 5 representative models:
+- procedures match expectations
+- widgets include important interface globals
+- breeds are correct
+
+### Routing tests
+Use hand-labeled seeds:
+- 10 core-paraphrase
+- 10 core-repair
+- 10 anchored-extension
+- 10 skip
+
+### Prompt builder tests
+Check generated prompt contains:
+- correct mode
+- correct family
+- correct invariant block
+- no unrelated family identifiers
+
+### Gate 2 tests
+Create explicit pass/fail examples:
+- valid core
+- valid extension
+- built-in extension misrepresentation
+- cross-family contamination
+- unapproved identifier
+
+---
+
+## 5.2 Integration tests
+
+Run the pipeline on:
+- 100 seeds first
+- then 1k
+- then 5k
+
+For each run, inspect:
+- acceptance rate
+- rejection reasons
+- top failing models
+- top failing families
+- duplicate rate
+- bad JSON rate
+
+---
+
+## 5.3 Manual spot checks
+
+For each of the 31 models, inspect at least:
+- 3 accepted core outputs
+- 3 accepted extension outputs if extensions exist
+- top 5 rejection reasons
+
+This is worth the time.
+
+---
+
+# 6. Rollout strategy
+
+Use a staged rollout.
+
+---
+
+## Stage A. Build profiles only
+No generation yet.
+
+Outcome:
+- stable `model_profiles_merged.json`
+
+---
+
+## Stage B. Route only
+Run routing over all seeds, inspect results.
+
+Outcome:
+- confidence in seed classification
+
+---
+
+## Stage C. Pilot generation
+Generate 5k–10k examples.
+
+Measure:
+- acceptance rate
+- mode mix
+- family mix
+- per-model failure rates
+
+---
+
+## Stage D. Tune and relaunch
+Adjust:
+- routing thresholds
+- prompt wording
+- extension family definitions
+- validator heuristics
+
+---
+
+## Stage E. Scale to 100k
+Only after pilot is stable.
+
+---
+
+## Stage F. Scale to 500k
+Use telemetry-driven quotas.
+
+---
+
+# 7. Suggested quotas and scheduling logic
+
+At 500k scale, quotas matter.
+
+---
+
+## 7.1 Per-mode quotas
+Initial recommendation:
+
+- `core_paraphrase`: 25–30%
+- `core_repair`: 10–20%
+- `anchored_extension`: 50–60%
+
+Exact values depend on acceptance yield.
+
+---
+
+## 7.2 Per-family quotas
+For models with rich extension spaces, cap family dominance.
+
+Example for `rebellion`:
+- `state_refinement`
+- `broadcast_media`
+- `network_layer`
+- `long_range_links`
+- `large_scale_optimization`
+- `early_warning_metrics`
+
+No single family should dominate unless it has much better yield and you explicitly want that.
+
+---
+
+## 7.3 Per-seed caps
+Do not let one seed produce too many very-local variants.
+
+Set caps such as:
+- max accepted per seed per mode
+- max accepted per seed per family
+
+This helps dedup.
+
+---
+
+## 7.4 Adaptive scheduling
+Use telemetry to increase attempts where:
+- acceptance is high
+- duplicates are low
+- semantic spread is good
+
+Decrease attempts where:
+- near-dup rejection spikes
+- extension-family leakage is common
+- prompt failure is persistent
+
+---
+
+# 8. Monitoring and telemetry
+
+This is essential for a 500k pipeline.
+
+---
+
+## 8.1 Log every attempt
+Each attempt should log:
+- seed_id
+- model_name
+- class_id
+- route_mode
+- extension_family
+- accepted/rejected
+- rejection reason
+- gate1 similarity
+- gate3 near-dup similarity if relevant
+
+---
+
+## 8.2 Metrics dashboard
+At minimum, summarize by:
+- model
+- route mode
+- extension family
+- class
+
+### Track
+- attempt count
+- acceptance rate
+- rejection reason counts
+- average best similarity
+- duplicate rate
+- JSON parse failure rate
+
+---
+
+## 8.3 Alert conditions
+Flag:
+- a model with very low acceptance
+- a family with very high `BASE_MODEL_MISREPRESENTATION`
+- a class with high near-dup rejection
+- unusual spikes in `UNKNOWN_CORE_IDENTIFIER`
+
+---
+
+# 9. Recommended implementation order in your codebase
+
+Here is the simplest practical order.
+
+---
+
+## Step 1
+Add the new package:
+- `synthetic_v2/`
+
+## Step 2
+Implement:
+- `nlogo_parser.py`
+- `interface_parser.py`
+- `build_model_profiles.py`
+
+## Step 3
+Implement:
+- `corpus_audit.py`
+- create first `manual_extension_specs.json`
+
+## Step 4
+Implement:
+- `routing.py`
+
+## Step 5
+Implement:
+- `prompt_builder.py`
+- `prompt_templates.py`
+
+## Step 6
+Implement:
+- `gate2_model_validation.py`
+
+## Step 7
+Implement:
+- `run_synthetic_v2.py`
+- `batch_scheduler.py`
+- `telemetry.py`
+
+## Step 8
+Run 1k–5k pilot and iterate
+
+---
+
+# 10. Suggested timeline
+
+A realistic sequence:
+
+## Week 1
+- input normalization
+- `.nlogo` parser
+- widget extraction
+- build core profiles
+
+## Week 2
+- corpus/seed audit
+- initial extension profile curation
+- routing implementation
+
+## Week 3
+- prompt builder
+- mode-aware Gate 2
+- unit tests
+
+## Week 4
+- orchestration integration
+- telemetry
+- 1k–5k pilot
+- tuning
+
+## Week 5+
+- scale to 25k+
+- tune quotas
+- move toward 100k and then 500k
+
+If only one person is doing this, this is still manageable if you keep the first version simple.
+
+---
+
+# 11. Risks and mitigations
+
+## Risk 1: widget parsing is incomplete
+### Mitigation
+- add unresolved identifier inference from code
+- review parser misses from audit reports
+
+## Risk 2: extension profiles are too broad
+### Mitigation
+- enforce one-family-at-a-time prompting
+- add cross-family rejection in Gate 2
+
+## Risk 3: extension prompts drift too far from base model
+### Mitigation
+- require core anchor
+- require framing
+- review telemetry by family
+
+## Risk 4: dedup kills yields
+### Mitigation
+- diversify generation modes
+- cap per-seed output
+- use corpus-driven topic families, not just paraphrases
+
+## Risk 5: routing mistakes
+### Mitigation
+- add `core_repair`
+- review routed samples
+- log routing diagnostics
+
+---
+
+# 12. Clear implementation milestones
+
+You can track progress with these milestone outputs.
+
+## Milestone 1
+`core_profiles.json` exists and is manually reviewed for 5 models
+
+## Milestone 2
+`model_profiles_merged.json` exists for all 31 models
+
+## Milestone 3
+`seed_routes.jsonl` exists and sample routing quality is acceptable
+
+## Milestone 4
+Gate 2 passes known positive/negative tests
+
+## Milestone 5
+Pilot generation of 5k examples completes with stable telemetry
+
+## Milestone 6
+Scale-up begins with adaptive scheduling
+
+---
+
+# 13. Minimum viable version vs full version
+
+## MVP
+Implement only:
+- core profiles
+- manual extension profiles for top 5–10 models
+- routing
+- prompt builder
+- mode-aware Gate 2
+
+This already solves the biggest contradiction.
+
+## Full version
+Add:
+- automated audit-driven extension suggestions
+- quota-aware scheduler
+- telemetry dashboard
+- broader profile coverage
+- iterative tuning loops
+
+---
+
+# 14. Final recommendation
+
+If you want this system to succeed, do **not** start by generating more data.
+
+Start by building these three assets:
+
+1. `core_profiles.json`
+2. `model_profiles_merged.json`
+3. `seed_routes.jsonl`
+
+Those three artifacts will define:
+- what is in each model
+- what coherent extensions are allowed
+- what prompt mode each seed should use
+
+Once those exist, the rest of the generation system becomes much easier and much more reliable.
+
+---
+
+If you want, I can turn this next into either:
+
+1. a **task checklist with file-by-file implementation tickets**, or  
+2. a **sample `manual_extension_specs.json` starter file for several models including `rebellion`**.

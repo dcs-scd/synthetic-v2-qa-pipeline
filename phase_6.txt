@@ -1,0 +1,547 @@
+Below is a Phase 6 implementation package in the same style as the earlier phases.
+
+It includes:
+
+- `qa_system_v2bis/synthetic_v2/prompt_templates.py`
+- `qa_system_v2bis/synthetic_v2/prompt_builder.py`
+
+This phase gives you:
+
+- mode-aware prompt generation for:
+  - `core_paraphrase`
+  - `core_repair`
+  - `anchored_extension`
+- family-aware extension prompts
+- a single dispatcher that consumes:
+  - routed seed rows
+  - merged model profiles
+
+---
+
+# 1. `qa_system_v2bis/synthetic_v2/prompt_templates.py`
+
+```python
+from typing import Dict, Any, List, Optional
+
+
+def safe_text(x: Any) -> str:
+    return "" if x is None else str(x)
+
+
+def comma_join(xs: List[str]) -> str:
+    return ", ".join(xs or [])
+
+
+def bullet_lines(xs: List[str], default: str = "None") -> str:
+    xs = xs or []
+    if not xs:
+        return f"- {default}"
+    return "\n".join(f"- {x}" for x in xs)
+
+
+def render_core_block(profile: Dict[str, Any]) -> str:
+    core = profile.get("core", {})
+    summary = safe_text(core.get("model_summary", ""))
+
+    procedures = comma_join(core.get("procedures", []))
+    variables = comma_join(core.get("variables", []))
+    breeds = comma_join(core.get("breeds", []))
+    widgets = comma_join(core.get("widgets", []))
+
+    return (
+        f"BASE MODEL SUMMARY:\n"
+        f"{summary}\n\n"
+        f"CORE MODEL INVARIANTS:\n"
+        f"- procedures: {procedures}\n"
+        f"- variables: {variables}\n"
+        f"- breeds: {breeds}\n"
+        f"- widgets: {widgets}\n"
+    )
+
+
+def get_family(profile: Dict[str, Any], family_name: Optional[str]) -> Dict[str, Any]:
+    if not family_name:
+        return {}
+    for fam in profile.get("extensions", {}).get("families", []):
+        if fam.get("name") == family_name:
+            return fam
+    return {}
+
+
+def render_extension_block(profile: Dict[str, Any], family_name: str) -> str:
+    fam = get_family(profile, family_name)
+    extensions = profile.get("extensions", {})
+
+    fam_concepts = fam.get("concepts", [])
+    fam_identifiers = fam.get("identifiers", [])
+    fam_rules = fam.get("rules", [])
+
+    general_rules = extensions.get("general_rules", [])
+    framing_cues = extensions.get("framing_cues", [])
+
+    return (
+        f"ALLOWED EXTENSION FAMILY:\n"
+        f"- {family_name}\n\n"
+        f"ALLOWED EXTENSION CONCEPTS:\n"
+        f"{bullet_lines(fam_concepts)}\n\n"
+        f"ALLOWED EXTENSION IDENTIFIERS:\n"
+        f"{bullet_lines(fam_identifiers)}\n\n"
+        f"FAMILY RULES:\n"
+        f"{bullet_lines(fam_rules)}\n\n"
+        f"GENERAL EXTENSION RULES:\n"
+        f"{bullet_lines(general_rules)}\n\n"
+        f"GOOD FRAMING CUES:\n"
+        f"{bullet_lines(framing_cues)}\n"
+    )
+
+
+def common_header() -> str:
+    return (
+        "You generate high-quality synthetic training data for NetLogo Q&A.\n"
+    )
+
+
+def common_style_block(level: str = "L3") -> str:
+    # Keep this intentionally simple and stable.
+    if level.upper() == "L3":
+        style = (
+            "Style: L3 = scientific coaching.\n"
+            "Include:\n"
+            "- exactly one hypothesis\n"
+            "- exactly one experiment\n"
+            "- exactly one limitation\n"
+            "Encourage scientific reasoning."
+        )
+    elif level.upper() == "L2":
+        style = (
+            "Style: L2 = clear technical explanation.\n"
+            "Include:\n"
+            "- one main causal explanation\n"
+            "- one concrete test or example\n"
+            "- one limitation or caveat."
+        )
+    else:
+        style = (
+            f"Style: {level}.\n"
+            "Keep the answer pedagogically useful and technically correct."
+        )
+    return style
+
+
+def core_paraphrase_template(
+    seed: Dict[str, Any],
+    profile: Dict[str, Any]
+) -> str:
+    return f"""{common_header()}
+Hard rules:
+- Output JSON only: {{"question": "...", "answer": "..."}}
+- No markdown fences, no preamble, no commentary.
+- Preserve technical correctness.
+- Use only source-faithful content from the original model.
+- Do not invent model-specific identifiers beyond the core invariant.
+- If you use model-specific identifiers, keep them backticked and unchanged.
+
+Priority order:
+1. Core model correctness
+2. Preserve the seed's educational intent
+3. Stay close to the seed
+4. Style
+
+CONTEXT:
+- model_name: {safe_text(seed.get("model_name"))}
+- level: {safe_text(seed.get("level"))}
+- tier: {safe_text(seed.get("tier"))}
+- mode: core_paraphrase
+
+{common_style_block(safe_text(seed.get("level", "L3")))}
+
+{render_core_block(profile)}
+
+TASK:
+Paraphrase the seed into a new natural variant while remaining faithful to the original model.
+Do not add extensions, new layers, or invented model-specific mechanisms.
+
+SEED QUESTION:
+{safe_text(seed.get("seed_q") or seed.get("question"))}
+
+SEED ANSWER:
+{safe_text(seed.get("seed_a") or seed.get("answer"))}
+
+OUTPUT:
+Return ONE JSON object only: {{"question": "...", "answer": "..."}}
+""".strip()
+
+
+def core_repair_template(
+    seed: Dict[str, Any],
+    profile: Dict[str, Any]
+) -> str:
+    return f"""{common_header()}
+Hard rules:
+- Output JSON only: {{"question": "...", "answer": "..."}} or {{"skip":"SEED_CONFLICT"}}
+- No markdown fences, no preamble, no commentary.
+- Preserve technical correctness.
+- Use only source-faithful content from the original model.
+- If the seed contains unsupported identifiers or mechanisms, replace them with the nearest correct core-model formulation.
+- Do not invent model-specific identifiers beyond the core invariant.
+- If you use model-specific identifiers, keep them backticked and unchanged.
+
+Priority order:
+1. Core model correctness
+2. Preserve as much of the seed's educational intent as possible
+3. Repair unsupported specificity
+4. Style
+
+CONTEXT:
+- model_name: {safe_text(seed.get("model_name"))}
+- level: {safe_text(seed.get("level"))}
+- tier: {safe_text(seed.get("tier"))}
+- mode: core_repair
+
+{common_style_block(safe_text(seed.get("level", "L3")))}
+
+{render_core_block(profile)}
+
+TASK:
+Repair and rewrite the seed into the nearest technically correct source-faithful Q&A for the original model.
+Do not preserve unsupported details literally.
+If you cannot produce a technically correct core-model answer, return {{"skip":"SEED_CONFLICT"}}.
+
+SEED QUESTION:
+{safe_text(seed.get("seed_q") or seed.get("question"))}
+
+SEED ANSWER:
+{safe_text(seed.get("seed_a") or seed.get("answer"))}
+
+OUTPUT:
+Return ONE JSON object only:
+{{"question": "...", "answer": "..."}}
+or
+{{"skip":"SEED_CONFLICT"}}
+""".strip()
+
+
+def anchored_extension_template(
+    seed: Dict[str, Any],
+    profile: Dict[str, Any],
+    family_name: str
+) -> str:
+    return f"""{common_header()}
+Hard rules:
+- Output JSON only: {{"question": "...", "answer": "..."}}
+- No markdown fences, no preamble, no commentary.
+- Preserve technical correctness.
+- Distinguish clearly between the original model and proposed extensions.
+- Core identifiers from the source model may be backticked.
+- Extension identifiers may be backticked only if they appear in the approved family below.
+- Do not present extension identifiers as if they already exist in the original source code.
+- Keep the answer anchored to the original model.
+
+Priority order:
+1. Technical correctness
+2. Preserve the seed's educational intent
+3. Stay anchored to the original model
+4. Style
+
+CONTEXT:
+- model_name: {safe_text(seed.get("model_name"))}
+- level: {safe_text(seed.get("level"))}
+- tier: {safe_text(seed.get("tier"))}
+- mode: anchored_extension
+- extension_family: {family_name}
+
+{common_style_block(safe_text(seed.get("level", "L3")))}
+
+{render_core_block(profile)}
+
+{render_extension_block(profile, family_name)}
+
+TASK:
+Create a natural variant of the seed that stays anchored to the original model while allowing a coherent extension in the approved family above.
+If you introduce new states, variables, links, or metrics, explicitly frame them as additions or modifications to the original model.
+
+SEED QUESTION:
+{safe_text(seed.get("seed_q") or seed.get("question"))}
+
+SEED ANSWER:
+{safe_text(seed.get("seed_a") or seed.get("answer"))}
+
+OUTPUT:
+Return ONE JSON object only: {{"question": "...", "answer": "..."}}
+""".strip()
+```
+
+---
+
+# 2. `qa_system_v2bis/synthetic_v2/prompt_builder.py`
+
+```python
+import argparse
+from typing import Dict, Any, Optional
+
+from .io_utils import load_json, load_jsonl, save_json
+from .text_utils import normalize_model_name
+from .prompt_templates import (
+    core_paraphrase_template,
+    core_repair_template,
+    anchored_extension_template,
+)
+
+
+def get_model_profile(model_profiles: Dict[str, Any], model_name: str) -> Dict[str, Any]:
+    model_name = normalize_model_name(model_name)
+    return model_profiles.get("models", {}).get(model_name, {})
+
+
+def build_core_prompt(seed: Dict[str, Any], profile: Dict[str, Any]) -> str:
+    return core_paraphrase_template(seed, profile)
+
+
+def build_core_repair_prompt(seed: Dict[str, Any], profile: Dict[str, Any]) -> str:
+    return core_repair_template(seed, profile)
+
+
+def build_extension_prompt(seed: Dict[str, Any], profile: Dict[str, Any], family_name: str) -> str:
+    if not family_name:
+        raise ValueError("anchored_extension prompt requires family_name")
+    return anchored_extension_template(seed, profile, family_name)
+
+
+def build_prompt(seed: Dict[str, Any], profile: Dict[str, Any], route_result: Optional[Dict[str, Any]] = None) -> str:
+    """
+    Dispatcher.
+
+    Accepts either:
+    - a routed seed row (with route_mode / extension_family), or
+    - a plain seed row plus route_result
+    """
+    if route_result is None:
+        route_mode = seed.get("route_mode")
+        family_name = seed.get("extension_family")
+    else:
+        route_mode = route_result.get("route")
+        family_name = route_result.get("family")
+
+    if route_mode == "core_paraphrase":
+        return build_core_prompt(seed, profile)
+    elif route_mode == "core_repair":
+        return build_core_repair_prompt(seed, profile)
+    elif route_mode == "anchored_extension":
+        return build_extension_prompt(seed, profile, family_name)
+    else:
+        raise ValueError(f"Cannot build prompt for route_mode={route_mode!r}")
+
+
+def preview_prompt_for_seed(routed_seed: Dict[str, Any], model_profiles: Dict[str, Any]) -> Dict[str, Any]:
+    model_name = normalize_model_name(routed_seed.get("model_name"))
+    profile = get_model_profile(model_profiles, model_name)
+
+    if not profile:
+        raise ValueError(f"No model profile found for model_name={model_name!r}")
+
+    prompt = build_prompt(routed_seed, profile)
+    return {
+        "seed_id": routed_seed.get("seed_id"),
+        "model_name": model_name,
+        "route_mode": routed_seed.get("route_mode"),
+        "extension_family": routed_seed.get("extension_family"),
+        "prompt": prompt,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--routed-seeds", required=True, help="Path to seed_routes.jsonl")
+    parser.add_argument("--profiles", required=True, help="Path to model_profiles_merged.json")
+    parser.add_argument("--seed-id", required=True, help="Seed ID to preview")
+    parser.add_argument("--out", required=True, help="Output JSON file for prompt preview")
+    args = parser.parse_args()
+
+    routed_seeds = load_jsonl(args.routed_seeds)
+    profiles = load_json(args.profiles)
+
+    target = None
+    for row in routed_seeds:
+        if row.get("seed_id") == args.seed_id:
+            target = row
+            break
+
+    if target is None:
+        raise ValueError(f"Seed ID not found: {args.seed_id}")
+
+    result = preview_prompt_for_seed(target, profiles)
+    save_json(result, args.out)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+---
+
+# 3. What this Phase 6 code does
+
+It builds prompts based on the routed mode.
+
+---
+
+## `core_paraphrase`
+For seeds that are already source-faithful.
+
+The prompt says:
+
+- stay inside the original model
+- do not add extensions
+- preserve meaning
+- use only core identifiers
+
+---
+
+## `core_repair`
+For seeds that are mostly on-model but need cleanup.
+
+The prompt says:
+
+- repair unsupported specifics
+- stay source-faithful
+- if impossible, return `{"skip":"SEED_CONFLICT"}`
+
+This is where seeds like your `rebellion` EWI example with `estimated-risk` can be repaired into:
+- `estimated-arrest-probability`
+
+---
+
+## `anchored_extension`
+For coherent model extensions.
+
+The prompt says:
+
+- stay anchored to the original model
+- extension identifiers are allowed only within the selected family
+- do not present them as existing source code
+- explicitly frame them as additions/modifications
+
+This matches the system you want for examples like:
+- broadcast media
+- long-range links
+- state refinement
+- early-warning metrics
+
+---
+
+# 4. Important design choices in these prompts
+
+## Only one extension family is injected
+This is very important.
+
+If the seed routes to:
+- `broadcast_media`
+
+the prompt includes only:
+- broadcast-media concepts
+- broadcast-media identifiers
+- broadcast-media rules
+
+and not all extension families for the model.
+
+That reduces family leakage and makes Gate 2 easier.
+
+---
+
+## Structured style control
+All modes include:
+
+- exactly one hypothesis
+- exactly one experiment
+- exactly one limitation
+
+This reduces freeform drift and makes answers easier to validate.
+
+---
+
+## Strong extension framing language
+The extension prompt explicitly says:
+
+- distinguish original model vs extension
+- do not present extension identifiers as original source code
+- frame new variables/states/links/metrics as additions
+
+That is crucial for avoiding:
+- `BASE_MODEL_MISREPRESENTATION`
+
+---
+
+# 5. Example usage
+
+To preview a prompt for one routed seed:
+
+```bash
+python -m qa_system_v2bis.synthetic_v2.prompt_builder \
+  --routed-seeds artifacts/routing/seed_routes.jsonl \
+  --profiles artifacts/model_profiles/model_profiles_merged.json \
+  --seed-id STE-GENERAL-NL-4153 \
+  --out artifacts/prompts/STE-GENERAL-NL-4153.prompt.json
+```
+
+This writes a JSON file like:
+
+```json
+{
+  "seed_id": "STE-GENERAL-NL-4153",
+  "model_name": "rebellion",
+  "route_mode": "anchored_extension",
+  "extension_family": "broadcast_media",
+  "prompt": "You generate high-quality synthetic training data for NetLogo Q&A...."
+}
+```
+
+---
+
+# 6. What to inspect after Phase 6
+
+Pick a few routed seeds and preview their prompts.
+
+I recommend checking at least:
+
+## `rebellion`
+- one `core_paraphrase`
+- one `core_repair`
+- one `anchored_extension`
+
+## `shepherds`
+- one core seed
+- one extension seed
+
+For each prompt, verify:
+
+- correct mode line
+- correct core summary and invariant block
+- only the selected extension family is present
+- seed text is inserted correctly
+- style instructions are stable
+
+---
+
+# 7. Recommended next step
+
+With Phase 6 complete, the next implementation step is:
+
+## Phase 7
+Implement mode-aware Gate 2 validation:
+
+- `qa_system_v2bis/synthetic_v2/gate2_model_validation.py`
+
+using:
+- `route_mode`
+- `extension_family`
+- `model_profiles_merged.json`
+
+This validator will enforce:
+- core-only identifiers in core modes
+- core + selected family identifiers in extension mode
+- extension framing
+- base-model anchoring
+- no cross-family leakage
+
+---
+
