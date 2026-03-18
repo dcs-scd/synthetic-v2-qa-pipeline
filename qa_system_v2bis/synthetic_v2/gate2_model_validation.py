@@ -285,7 +285,7 @@ def validate_gate2(
     text_n = norm_lower(text)
 
     core = profile.get("core", {})
-    core_ids = build_core_identifier_set(core)
+    core_ids = build_core_identifier_set(profile)
     ext_ids_all = all_extension_identifiers(profile)
     summary = core.get("model_summary", "")
 

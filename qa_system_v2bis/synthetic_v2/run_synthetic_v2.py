@@ -1,8 +1,15 @@
 import argparse
 import json
+import logging
 import re as _re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Set
+
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = None
 
 from .io_utils import load_json, load_jsonl, append_jsonl, save_json
 from .prompt_builder import build_prompt, get_model_profile
@@ -11,10 +18,16 @@ from .gate2_model_validation import validate_generated_row
 from .gate3_dedup import InMemoryDedupIndex, run_gate3_dedup
 from .telemetry import make_event, record_attempt, summarize_telemetry
 from .text_utils import normalize_model_name
+from .batch_scheduler import QuotaTracker, load_quotas
 
+
+logger = logging.getLogger(__name__)
 
 _SENSITIVE_RE = _re.compile(r'(sk-|key-|token[=:])\S+', _re.IGNORECASE)
 MAX_LLM_RESPONSE_SIZE = 50_000
+MAX_LLM_RETRIES = 3
+LLM_RETRY_BASE_DELAY = 1.0  # seconds
+LLM_RETRY_BACKOFF_FACTOR = 2.0
 
 
 def _safe_error_str(e: Exception, max_len: int = 200) -> str:
@@ -107,6 +120,35 @@ def reject_record(seed_row: Dict[str, Any], reason: str, details: Dict[str, Any]
 
 
 # -------------------------------------------------------------------
+# LLM retry wrapper
+# -------------------------------------------------------------------
+
+def _call_llm_with_retry(llm_client, prompt: str, seed_row: Dict[str, Any]) -> str:
+    """Call LLM with exponential backoff retry on transient errors."""
+    last_error = None
+    for attempt in range(MAX_LLM_RETRIES):
+        try:
+            return llm_client.generate(prompt, seed_row=seed_row)
+        except Exception as e:
+            last_error = e
+            err_str = str(e).lower()
+            is_transient = any(s in err_str for s in [
+                "429", "rate limit", "too many requests",
+                "500", "502", "503", "504",
+                "timeout", "timed out", "connection",
+            ])
+            if not is_transient or attempt == MAX_LLM_RETRIES - 1:
+                raise
+            delay = LLM_RETRY_BASE_DELAY * (LLM_RETRY_BACKOFF_FACTOR ** attempt)
+            logger.warning(
+                "LLM call failed (attempt %d/%d), retrying in %.1fs: %s",
+                attempt + 1, MAX_LLM_RETRIES, delay, _safe_error_str(e)
+            )
+            time.sleep(delay)
+    raise last_error  # unreachable but satisfies type checker
+
+
+# -------------------------------------------------------------------
 # Seed processing
 # -------------------------------------------------------------------
 
@@ -132,9 +174,9 @@ def process_seed(
     except Exception as e:
         return reject_record(seed_row, "PROMPT_BUILD_ERROR", {"error": _safe_error_str(e)})
 
-    # LLM call
+    # LLM call (with retry)
     try:
-        raw = llm_client.generate(prompt, seed_row=seed_row)
+        raw = _call_llm_with_retry(llm_client, prompt, seed_row)
     except Exception as e:
         return reject_record(seed_row, "LLM_CALL_ERROR", {"error": _safe_error_str(e)})
 
@@ -211,12 +253,25 @@ def generate_synthetic(
     near_dup_threshold: float = 0.985,
     limit: Optional[int] = None,
     max_workers: int = 8,
+    processed_seed_ids: Optional[Set[str]] = None,
+    quota_tracker: Optional[QuotaTracker] = None,
 ) -> Dict[str, Any]:
     from .io_utils import open_jsonl_writer
     import threading
 
     events = []
     rows = routed_seeds[:limit] if limit is not None else routed_seeds
+    if processed_seed_ids:
+        rows = [r for r in rows if r.get("seed_id") not in processed_seed_ids]
+    if quota_tracker:
+        filtered = []
+        for r in rows:
+            ok, reason = quota_tracker.should_process(r)
+            if ok:
+                filtered.append(r)
+            else:
+                quota_tracker.record_skip(reason)
+        rows = filtered
     dedup_lock = threading.Lock()
 
     def _process_and_dedup(seed_row):
@@ -237,11 +292,22 @@ def generate_synthetic(
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = {pool.submit(_process_and_dedup, seed): seed for seed in rows}
 
-            for future in as_completed(futures):
+            total = len(rows)
+            accepted_count = 0
+            rejected_count = 0
+
+            iterator = as_completed(futures)
+            if tqdm is not None:
+                iterator = tqdm(iterator, total=total, desc="Generating", unit="seed")
+
+            for i, future in enumerate(iterator, 1):
                 seed_row, result = future.result()
 
                 if result["status"] == "accepted":
                     write_accepted(result["record"])
+                    accepted_count += 1
+                    if quota_tracker:
+                        quota_tracker.record_accepted(seed_row)
                     event = make_event(
                         seed_row,
                         status="accepted",
@@ -254,6 +320,7 @@ def generate_synthetic(
                     )
                 else:
                     write_rejected(result["record"])
+                    rejected_count += 1
                     event = make_event(
                         seed_row,
                         status="rejected",
@@ -264,6 +331,14 @@ def generate_synthetic(
                 events.append(event)
                 if telemetry_path:
                     record_attempt(telemetry_path, event)
+
+                # Periodic summary every 500 seeds
+                if i % 500 == 0:
+                    rate = accepted_count / max(i, 1) * 100
+                    logger.info(
+                        "Progress: %d/%d processed | %d accepted (%.1f%%) | %d rejected",
+                        i, total, accepted_count, rate, rejected_count
+                    )
 
     return summarize_telemetry(events)
 
@@ -322,6 +397,10 @@ def main():
     parser.add_argument("--limit", type=int, default=None, help="Optional max number of seeds to process")
     parser.add_argument("--near-dup-threshold", type=float, default=0.985)
 
+    parser.add_argument("--max-workers", type=int, default=8, help="Max concurrent LLM calls")
+
+    parser.add_argument("--quotas", default=None, help="Optional quota config JSON path")
+
     # smoke-test adapters
     parser.add_argument("--llm-mode", default="echo_seed", help="echo_seed | static_demo")
     parser.add_argument("--embedding-mode", default="always_pass", help="always_pass")
@@ -334,11 +413,28 @@ def main():
     embedding_index = build_embedding_index(args.embedding_mode)
     dedup_index = InMemoryDedupIndex()
 
+    processed_seed_ids: Set[str] = set()
+    existing: List[Dict[str, Any]] = []
     from pathlib import Path
     if Path(args.accepted).exists():
         existing = load_jsonl(args.accepted, tolerant=True)
         for row in existing:
             dedup_index.add(row)
+            sid = row.get("seed_id")
+            if sid:
+                processed_seed_ids.add(sid)
+    if Path(args.rejected).exists():
+        for row in load_jsonl(args.rejected, tolerant=True):
+            sid = row.get("seed_id")
+            if sid:
+                processed_seed_ids.add(sid)
+    if processed_seed_ids:
+        print(f"Resuming: skipping {len(processed_seed_ids)} already-processed seeds")
+
+    quotas = load_quotas(args.quotas)
+    quota_tracker = QuotaTracker(quotas)
+    if existing:
+        quota_tracker.seed_from_existing(existing)
 
     summary = generate_synthetic(
         routed_seeds=routed_seeds,
@@ -350,7 +446,10 @@ def main():
         rejected_path=args.rejected,
         telemetry_path=args.telemetry,
         near_dup_threshold=args.near_dup_threshold,
-        limit=args.limit
+        limit=args.limit,
+        max_workers=args.max_workers,
+        processed_seed_ids=processed_seed_ids,
+        quota_tracker=quota_tracker,
     )
 
     save_json(summary, args.summary_out)
