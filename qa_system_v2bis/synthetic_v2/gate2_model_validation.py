@@ -1,0 +1,478 @@
+import argparse
+import re
+from typing import Dict, List, Set, Any, Optional
+
+from .io_utils import load_json, save_json
+from .text_utils import normalize_model_name
+
+
+BACKTICK_RE = re.compile(r"`([^`]+)`")
+WORD_RE = re.compile(r"\b[a-zA-Z_][a-zA-Z0-9_\-]*\??\b")
+SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+
+STOPWORDS = {
+    "the", "a", "an", "of", "to", "for", "in", "on", "at", "by", "with",
+    "and", "or", "is", "are", "was", "were", "be", "as", "from", "that",
+    "this", "these", "those", "it", "its", "their", "them", "what", "how",
+    "why", "when", "where", "which", "do", "does", "did", "can", "could",
+    "would", "should", "into", "about", "than", "then", "if", "we", "you",
+    "your", "our", "they", "he", "she", "i", "my", "me", "his", "her",
+    "them", "also", "just", "not", "only", "very", "more", "less", "same",
+    "different", "new", "old", "model", "netlogo"
+}
+
+DEFAULT_GLOBAL_ALLOW = {
+    "ticks", "tick", "turtles", "patches", "links", "behaviorspace",
+    "monitor", "plot", "reporter", "button", "chooser", "slider",
+    "switch", "world", "agent", "agents", "ask", "count", "mean",
+    "sum", "min", "max", "distance", "with", "of", "one-of", "n-of",
+    "if", "ifelse", "let", "set", "run", "repeat",
+    "variance", "standard", "deviation", "autocorrelation",
+    "time", "series", "parameter", "parameters", "metric", "metrics",
+    "experiment", "experiments", "spatial", "global", "local", "ratio"
+}
+
+
+def norm(s: str) -> str:
+    return re.sub(r"\s+", " ", str(s).strip().lower())
+
+
+def split_sentences(text: str) -> List[str]:
+    return [x.strip() for x in SENTENCE_SPLIT_RE.split(text or "") if x.strip()]
+
+
+def extract_backticked_identifiers(text: str) -> List[str]:
+    return [norm(x) for x in BACKTICK_RE.findall(text or "")]
+
+
+def extract_words(text: str) -> List[str]:
+    return [norm(x) for x in WORD_RE.findall(text or "")]
+
+
+def summary_keywords(summary: str) -> Set[str]:
+    kws = set()
+    for w in extract_words(summary or ""):
+        if w not in STOPWORDS and len(w) >= 5:
+            kws.add(w)
+    return kws
+
+
+def build_core_identifier_set(core: Dict[str, Any]) -> Set[str]:
+    out = set()
+    for key in ["procedures", "variables", "breeds", "widgets"]:
+        for x in core.get(key, []):
+            out.add(norm(x))
+    return out
+
+
+def get_family(profile: Dict[str, Any], family_name: Optional[str]) -> Dict[str, Any]:
+    if not family_name:
+        return {}
+    for fam in profile.get("extensions", {}).get("families", []):
+        if fam.get("name") == family_name:
+            return fam
+    return {}
+
+
+def all_extension_identifiers(profile: Dict[str, Any]) -> Set[str]:
+    out = set()
+    for fam in profile.get("extensions", {}).get("families", []):
+        for x in fam.get("identifiers", []):
+            out.add(norm(x))
+    return out
+
+
+def family_identifier_set(profile: Dict[str, Any], family_name: Optional[str]) -> Set[str]:
+    fam = get_family(profile, family_name)
+    return {norm(x) for x in fam.get("identifiers", [])}
+
+
+def all_extension_concepts(profile: Dict[str, Any]) -> Set[str]:
+    out = set()
+    for fam in profile.get("extensions", {}).get("families", []):
+        for x in fam.get("concepts", []):
+            out.add(norm(x))
+    return out
+
+
+def family_concept_set(profile: Dict[str, Any], family_name: Optional[str]) -> Set[str]:
+    fam = get_family(profile, family_name)
+    return {norm(x) for x in fam.get("concepts", [])}
+
+
+def get_framing_cues(profile: Dict[str, Any]) -> Set[str]:
+    return {norm(x) for x in profile.get("extensions", {}).get("framing_cues", [])}
+
+
+def get_disallowed_themes(profile: Dict[str, Any]) -> Set[str]:
+    return {norm(x) for x in profile.get("extensions", {}).get("disallowed_unanchored_themes", [])}
+
+
+def find_present_phrases(text: str, phrases: Set[str]) -> List[str]:
+    t = norm(text)
+    hits = []
+    for p in phrases:
+        if p and p in t:
+            hits.append(p)
+    return sorted(set(hits))
+
+
+def has_extension_framing(answer: str, profile: Dict[str, Any]) -> bool:
+    a = norm(answer)
+    framing_cues = get_framing_cues(profile)
+
+    if any(cue in a for cue in framing_cues):
+        return True
+
+    generic = [
+        "extend the original model",
+        "extend the model",
+        "you could add",
+        "you could introduce",
+        "one extension is",
+        "if you modify the model",
+        "in an extended version",
+        "beyond the original code",
+        "as an extension",
+        "replace the original",
+        "refine the original"
+    ]
+    return any(x in a for x in generic)
+
+
+def implies_base_model_contains_extensions(answer: str, used_extension_ids: Set[str]) -> List[str]:
+    """
+    Flags extension identifiers that are described as already existing in the original/base model.
+    """
+    bad_hits = []
+    sentences = split_sentences(answer)
+
+    bad_cues = [
+        "the model already",
+        "the original model already",
+        "the base model already",
+        "already uses",
+        "already tracks",
+        "already contains",
+        "already includes",
+        "already has",
+        "the existing code",
+        "the original code",
+        "built-in",
+        "currently defined",
+        "is defined in the model",
+        "is tracked in the model",
+        "is in the original model",
+        "the model uses",
+        "the model tracks",
+        "the model contains",
+        "the model includes",
+        "the model has"
+    ]
+
+    safe_cues = [
+        "you could add",
+        "you could introduce",
+        "extend the model",
+        "extend the original model",
+        "in an extended version",
+        "as an extension",
+        "if you modify the model",
+        "not part of the original code",
+        "beyond the original code",
+        "replace the original",
+        "refine the original"
+    ]
+
+    for sent in sentences:
+        s = norm(sent)
+
+        if any(safe in s for safe in safe_cues):
+            continue
+
+        for ext_id in used_extension_ids:
+            if ext_id in s and any(bad in s for bad in bad_cues):
+                bad_hits.append(ext_id)
+
+    return sorted(set(bad_hits))
+
+
+def has_core_anchor(text: str, core_ids: Set[str], model_summary: str) -> bool:
+    t = norm(text)
+
+    # direct core-id anchor
+    for cid in core_ids:
+        if cid in t:
+            return True
+
+    # explicit anchor phrases
+    anchor_phrases = [
+        "original model",
+        "base model",
+        "original code",
+        "original rebellion model",
+        "original shepherds model",
+        "extend the original model"
+    ]
+    if any(p in t for p in anchor_phrases):
+        return True
+
+    # summary keyword overlap
+    kws = summary_keywords(model_summary or "")
+    hits = [kw for kw in kws if kw in t]
+    return len(hits) >= 2
+
+
+def detect_disallowed_theme_hits(text: str, profile: Dict[str, Any]) -> List[str]:
+    disallowed = get_disallowed_themes(profile)
+    return find_present_phrases(text, disallowed)
+
+
+def detect_extension_concepts_in_core_mode(text: str, profile: Dict[str, Any]) -> List[str]:
+    all_concepts = all_extension_concepts(profile)
+    return find_present_phrases(text, all_concepts)
+
+
+def detect_cross_family_extension_ids(
+    used_extension_ids: Set[str],
+    profile: Dict[str, Any],
+    family_name: Optional[str]
+) -> List[str]:
+    if not family_name:
+        return []
+    allowed = family_identifier_set(profile, family_name)
+    return sorted([x for x in used_extension_ids if x not in allowed])
+
+
+def validate_gate2(
+    question: str,
+    answer: str,
+    mode: str,
+    profile: Dict[str, Any],
+    family_name: Optional[str] = None,
+    global_allow: Optional[Set[str]] = None
+) -> Dict[str, Any]:
+    """
+    Mode-aware model/profile validation.
+
+    Modes:
+    - core_paraphrase
+    - core_repair
+    - anchored_extension
+    """
+    if global_allow is None:
+        global_allow = DEFAULT_GLOBAL_ALLOW
+
+    text = f"{question or ''}\n{answer or ''}"
+    text_n = norm(text)
+
+    core = profile.get("core", {})
+    core_ids = build_core_identifier_set(core)
+    ext_ids_all = all_extension_identifiers(profile)
+    summary = core.get("model_summary", "")
+
+    backticked = set(extract_backticked_identifiers(text))
+    used_core_ids = {x for x in backticked if x in core_ids}
+    used_ext_ids = {x for x in backticked if x in ext_ids_all}
+    unknown_ids = {
+        x for x in backticked
+        if x not in core_ids and x not in ext_ids_all and x not in global_allow
+    }
+
+    # ---- CORE MODES ----
+    if mode in {"core_paraphrase", "core_repair"}:
+        if unknown_ids:
+            return {
+                "ok": False,
+                "reason": "UNKNOWN_CORE_IDENTIFIER",
+                "details": {
+                    "unknown_identifiers": sorted(unknown_ids),
+                    "used_core_ids": sorted(used_core_ids),
+                    "used_extension_ids": sorted(used_ext_ids),
+                }
+            }
+
+        if used_ext_ids:
+            return {
+                "ok": False,
+                "reason": "UNAPPROVED_EXTENSION_IDENTIFIER",
+                "details": {
+                    "extension_identifiers_in_core_mode": sorted(used_ext_ids)
+                }
+            }
+
+        ext_concept_hits = detect_extension_concepts_in_core_mode(text, profile)
+        if ext_concept_hits:
+            return {
+                "ok": False,
+                "reason": "EXTENSION_CONTENT_IN_CORE_MODE",
+                "details": {
+                    "extension_concept_hits": ext_concept_hits[:30]
+                }
+            }
+
+        disallowed_hits = detect_disallowed_theme_hits(text, profile)
+        if disallowed_hits:
+            return {
+                "ok": False,
+                "reason": "DISALLOWED_THEME",
+                "details": {
+                    "disallowed_hits": disallowed_hits
+                }
+            }
+
+        return {
+            "ok": True,
+            "reason": None,
+            "details": {
+                "mode": mode,
+                "used_core_ids": sorted(used_core_ids),
+                "used_extension_ids": [],
+            }
+        }
+
+    # ---- EXTENSION MODE ----
+    elif mode == "anchored_extension":
+        if unknown_ids:
+            return {
+                "ok": False,
+                "reason": "UNAPPROVED_EXTENSION_IDENTIFIER",
+                "details": {
+                    "unknown_identifiers": sorted(unknown_ids),
+                    "used_core_ids": sorted(used_core_ids),
+                    "used_extension_ids": sorted(used_ext_ids),
+                }
+            }
+
+        cross_family_ids = detect_cross_family_extension_ids(used_ext_ids, profile, family_name)
+        if cross_family_ids:
+            return {
+                "ok": False,
+                "reason": "CROSS_FAMILY_EXTENSION_IDENTIFIER",
+                "details": {
+                    "family_name": family_name,
+                    "cross_family_extension_ids": cross_family_ids
+                }
+            }
+
+        if used_ext_ids and not has_extension_framing(answer, profile):
+            return {
+                "ok": False,
+                "reason": "EXTENSION_REQUIRES_FRAMING",
+                "details": {
+                    "used_extension_ids": sorted(used_ext_ids)
+                }
+            }
+
+        misrep = implies_base_model_contains_extensions(answer, used_ext_ids)
+        if misrep:
+            return {
+                "ok": False,
+                "reason": "BASE_MODEL_MISREPRESENTATION",
+                "details": {
+                    "misrepresented_extension_ids": misrep
+                }
+            }
+
+        if not has_core_anchor(text_n, core_ids, summary):
+            return {
+                "ok": False,
+                "reason": "INSUFFICIENT_CORE_ANCHOR",
+                "details": {
+                    "used_core_ids": sorted(used_core_ids),
+                    "family_name": family_name,
+                    "model_summary": summary
+                }
+            }
+
+        disallowed_hits = detect_disallowed_theme_hits(text, profile)
+        if disallowed_hits:
+            return {
+                "ok": False,
+                "reason": "DISALLOWED_THEME",
+                "details": {
+                    "disallowed_hits": disallowed_hits
+                }
+            }
+
+        return {
+            "ok": True,
+            "reason": None,
+            "details": {
+                "mode": mode,
+                "family_name": family_name,
+                "used_core_ids": sorted(used_core_ids),
+                "used_extension_ids": sorted(used_ext_ids),
+            }
+        }
+
+    else:
+        return {
+            "ok": False,
+            "reason": "UNKNOWN_MODE",
+            "details": {"mode": mode}
+        }
+
+
+def validate_generated_row(
+    generated_row: Dict[str, Any],
+    routed_seed_row: Dict[str, Any],
+    model_profiles: Dict[str, Any],
+    global_allow: Optional[Set[str]] = None
+) -> Dict[str, Any]:
+    """
+    Convenience wrapper when you have:
+    - generated row with question/answer
+    - routed seed row with route_mode / extension_family / model_name
+    - merged model profiles
+    """
+    model_name = normalize_model_name(routed_seed_row.get("model_name"))
+    profile = model_profiles.get("models", {}).get(model_name)
+
+    if not profile:
+        return {
+            "ok": False,
+            "reason": "MISSING_MODEL_PROFILE",
+            "details": {"model_name": model_name}
+        }
+
+    return validate_gate2(
+        question=generated_row.get("question", ""),
+        answer=generated_row.get("answer", ""),
+        mode=routed_seed_row.get("route_mode"),
+        profile=profile,
+        family_name=routed_seed_row.get("extension_family"),
+        global_allow=global_allow,
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--profiles", required=True, help="Path to model_profiles_merged.json")
+    parser.add_argument("--model-name", required=True, help="Model name")
+    parser.add_argument("--mode", required=True, help="core_paraphrase | core_repair | anchored_extension")
+    parser.add_argument("--family-name", default=None, help="Extension family, if mode=anchored_extension")
+    parser.add_argument("--question", required=True, help="Generated question text")
+    parser.add_argument("--answer", required=True, help="Generated answer text")
+    parser.add_argument("--out", required=True, help="Output JSON report")
+    args = parser.parse_args()
+
+    profiles = load_json(args.profiles)
+    model_name = normalize_model_name(args.model_name)
+    profile = profiles.get("models", {}).get(model_name)
+
+    if not profile:
+        raise ValueError(f"No model profile found for model_name={model_name!r}")
+
+    result = validate_gate2(
+        question=args.question,
+        answer=args.answer,
+        mode=args.mode,
+        profile=profile,
+        family_name=args.family_name
+    )
+    save_json(result, args.out)
+
+
+if __name__ == "__main__":
+    main()

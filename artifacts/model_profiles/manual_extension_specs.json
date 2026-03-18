@@ -1,0 +1,211 @@
+{
+  "_defaults": {
+    "general_rules": [
+      "Extension content must remain anchored to the original model.",
+      "At least one core identifier or clearly core concept should appear in every extension answer.",
+      "Do not present extension identifiers as original source-code elements unless they are in the core invariant.",
+      "Prefer minimal coherent extensions over broad redesigns."
+    ],
+    "framing_cues": [
+      "to extend the original model",
+      "extend the model",
+      "you could add",
+      "you could introduce",
+      "if you modify the model",
+      "in an extended version",
+      "beyond the original code",
+      "as an extension",
+      "replace the original",
+      "refine the original"
+    ],
+    "disallowed_unanchored_themes": [
+      "quantum mechanics",
+      "genetics",
+      "financial derivatives",
+      "cosmology"
+    ]
+  },
+  "models": {
+    "rebellion": {
+      "general_rules": [
+        "Extensions should remain tied to grievance, activation, policing, diffusion, or scaling in the rebellion setting."
+      ],
+      "families": [
+        {
+          "name": "state_refinement",
+          "concepts": [
+            "state diagram",
+            "coarse-grained states",
+            "fine-grained states",
+            "sympathizer",
+            "protester",
+            "leader role",
+            "state refinement"
+          ],
+          "identifiers": [
+            "rebellion-state",
+            "global-unrest-index",
+            "time-to-peak-unrest",
+            "initial-grievance",
+            "population-density"
+          ],
+          "rules": [
+            "Must be presented as replacing or refining the original binary `active?` logic.",
+            "Must not be described as already present in the base source code."
+          ]
+        },
+        {
+          "name": "network_layer",
+          "concepts": [
+            "social network links",
+            "similar friends",
+            "network density",
+            "homophily",
+            "threshold contagion",
+            "friend influence"
+          ],
+          "identifiers": [
+            "homophily-index",
+            "global-rebellion-rate",
+            "network-density",
+            "rebel-friends-count",
+            "social-link-weight"
+          ],
+          "rules": [
+            "Must be framed as an added interaction layer beyond local `neighborhood` dynamics.",
+            "Should remain connected to grievance, threshold effects, or activation."
+          ]
+        },
+        {
+          "name": "broadcast_media",
+          "concepts": [
+            "broadcast media",
+            "global signal",
+            "media influence",
+            "synchronization",
+            "media shock"
+          ],
+          "identifiers": [
+            "media-influence",
+            "social-influence-weight",
+            "media-signal",
+            "time-to-critical-mass",
+            "spatial-clustering-index"
+          ],
+          "rules": [
+            "Must be framed as an added global influence on grievance or activation.",
+            "Must not imply that broadcast media exists in the original code."
+          ]
+        },
+        {
+          "name": "long_range_links",
+          "concepts": [
+            "long-range links",
+            "small-world structure",
+            "shortcuts",
+            "cluster merging",
+            "path length"
+          ],
+          "identifiers": [
+            "number-of-long-range-links",
+            "long-range-link-count",
+            "size-of-largest-cluster",
+            "mean-path-length",
+            "local-link-radius",
+            "initial-discontent-level"
+          ],
+          "rules": [
+            "Must be framed as adding nonlocal ties beyond the base spatial-local mechanism.",
+            "Should remain about rebellion spread, tipping, or cluster growth."
+          ]
+        },
+        {
+          "name": "large_scale_optimization",
+          "concepts": [
+            "large agent populations",
+            "computation time",
+            "incremental updates",
+            "hub targeting",
+            "execution efficiency"
+          ],
+          "identifiers": [
+            "ticks-to-tipping-point",
+            "execution-time",
+            "total-neighbor-influence",
+            "cache-update-mode",
+            "degree-centrality-seed"
+          ],
+          "rules": [
+            "Must be presented as a scaling or implementation extension.",
+            "Should distinguish computational speed from rebellion dynamics."
+          ]
+        },
+        {
+          "name": "early_warning_metrics",
+          "concepts": [
+            "early-warning indicators",
+            "critical slowing down",
+            "variance spike",
+            "autocorrelation",
+            "spatial clustering"
+          ],
+          "identifiers": [
+            "lag-1-autocorrelation",
+            "variance-window",
+            "spatial-autocorrelation",
+            "ready-to-rebel-index"
+          ],
+          "rules": [
+            "Metrics may be added for analysis even if they are not part of the original code.",
+            "Should be tied to core quantities like `active?`, `grievance`, `vision`, or `government-legitimacy`."
+          ]
+        }
+      ]
+    },
+    "shepherds": {
+      "general_rules": [
+        "Extensions should remain tied to shepherd movement, searching, local sheep conditions, carrying behavior, or efficiency measurement."
+      ],
+      "families": [
+        {
+          "name": "state_refinement",
+          "concepts": [
+            "behavior states",
+            "patrolling",
+            "chasing",
+            "herding",
+            "cooldown",
+            "state machine"
+          ],
+          "identifiers": [
+            "state",
+            "herd-radius",
+            "herding-duration",
+            "state-switch-count"
+          ],
+          "rules": [
+            "Must be framed explicitly as an extension beyond the original source model.",
+            "Must not claim these states already exist in the base code."
+          ]
+        },
+        {
+          "name": "measurement_extension",
+          "concepts": [
+            "compact herd",
+            "switching frequency",
+            "state transition rate",
+            "local density metric"
+          ],
+          "identifiers": [
+            "state-switching-frequency",
+            "compactness-index",
+            "mean-herd-distance"
+          ],
+          "rules": [
+            "Added metrics must be framed as analytical extensions rather than built-in variables."
+          ]
+        }
+      ]
+    }
+  }
+}
