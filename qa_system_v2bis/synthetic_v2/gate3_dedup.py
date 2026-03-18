@@ -1,22 +1,18 @@
 import hashlib
-import re
 from typing import Dict, Any, Optional, List
 
-
-def normalize_text(text: str) -> str:
-    text = (text or "").strip().lower()
-    text = re.sub(r"\s+", " ", text)
-    return text
+from .text_utils import norm_lower
 
 
 def qa_hash(question: str, answer: str) -> str:
-    payload = normalize_text(question) + "\n---\n" + normalize_text(answer)
+    nq = norm_lower(question)
+    na = norm_lower(answer)
+    payload = nq + "\n---\n" + na
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def q_hash(question: str) -> str:
-    payload = normalize_text(question)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return hashlib.sha256(norm_lower(question).encode("utf-8")).hexdigest()
 
 
 class NoopQuestionSimilarityBackend:

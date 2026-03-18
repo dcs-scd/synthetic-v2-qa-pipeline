@@ -8,6 +8,7 @@ from typing import Dict, List, Any, Set, Tuple
 from .io_utils import load_json, load_jsonl, save_json
 from .text_utils import normalize_model_name
 from .text_utils import norm_lower, STOPWORDS as _BASE_STOPWORDS, GLOBAL_ALLOW, BACKTICK_RE, IDLIKE_RE, safe_filename
+from .profile_utils import build_core_identifier_set
 
 
 BRACKET_RE = re.compile(r"\[([^\]]+)\]")
@@ -50,14 +51,7 @@ def load_profiles(path: str) -> Dict[str, Any]:
 
 
 def build_core_term_set(model_profile: Dict[str, Any]) -> Set[str]:
-    core = model_profile.get("core", {})
-    out = set()
-
-    for key in ["procedures", "variables", "breeds", "widgets"]:
-        for x in core.get(key, []):
-            out.add(norm_lower(x))
-
-    return out
+    return build_core_identifier_set(model_profile)
 
 
 def build_aux_term_set(model_profile: Dict[str, Any]) -> Set[str]:

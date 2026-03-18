@@ -16,7 +16,7 @@ from .prompt_builder import build_prompt, get_model_profile
 from .gate1_embedding import run_gate1_embedding, AlwaysPassEmbeddingIndex
 from .gate2_model_validation import validate_generated_row
 from .gate3_dedup import InMemoryDedupIndex, run_gate3_dedup
-from .telemetry import make_event, record_attempt, summarize_telemetry
+from .telemetry import make_event, record_attempt, summarize_telemetry, TelemetrySummary
 from .text_utils import normalize_model_name
 from .batch_scheduler import QuotaTracker, load_quotas
 
@@ -214,15 +214,11 @@ def process_seed(
         "extension_family": seed_row.get("extension_family"),
         "question": qa["question"],
         "answer": qa["answer"],
-        "prompt_meta": {
-            "route_mode": seed_row.get("route_mode"),
-            "extension_family": seed_row.get("extension_family")
-        },
         "gate1": gate1,
         "gate2": gate2,
     }
 
-    return {"status": "pending_gate3", "record": accepted, "question": qa["question"], "answer": qa["answer"]}
+    return {"status": "pending_gate3", "record": accepted}
 
 
 # -------------------------------------------------------------------
@@ -246,7 +242,7 @@ def generate_synthetic(
 ) -> Dict[str, Any]:
     from .io_utils import open_jsonl_writer
 
-    events = []
+    summary = TelemetrySummary()
     rows = routed_seeds[:limit] if limit is not None else routed_seeds
     if processed_seed_ids:
         rows = [r for r in rows if r.get("seed_id") not in processed_seed_ids]
@@ -299,8 +295,8 @@ def generate_synthetic(
                 elif result["status"] == "pending_gate3":
                     # Gate 3 runs in main thread — no TOCTOU race on dedup_index
                     gate3 = run_gate3_dedup(
-                        question=result["question"],
-                        answer=result["answer"],
+                        question=result["record"]["question"],
+                        answer=result["record"]["answer"],
                         dedup_index=dedup_index,
                         near_dup_threshold=near_dup_threshold,
                     )
@@ -334,7 +330,7 @@ def generate_synthetic(
                 else:
                     continue
 
-                events.append(event)
+                summary.record(event)
                 if telemetry_path:
                     record_attempt(telemetry_path, event)
 
@@ -346,7 +342,7 @@ def generate_synthetic(
                         i, total, accepted_count, rate, rejected_count
                     )
 
-    return summarize_telemetry(events)
+    return summary.to_dict()
 
 
 # -------------------------------------------------------------------

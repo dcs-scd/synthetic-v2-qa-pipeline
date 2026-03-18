@@ -72,6 +72,55 @@ def summarize_telemetry(events: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+class TelemetrySummary:
+    """Incremental telemetry accumulator — O(1) memory regardless of event count."""
+
+    def __init__(self):
+        self.total_events = 0
+        self.by_status: Counter = Counter()
+        self.by_reason: Counter = Counter()
+        self.by_model: Counter = Counter()
+        self.by_mode: Counter = Counter()
+        self.by_family: Counter = Counter()
+        self.by_model_mode: Dict[str, Counter] = defaultdict(Counter)
+        self.by_model_reason: Dict[str, Counter] = defaultdict(Counter)
+
+    def record(self, event: Dict[str, Any]) -> None:
+        self.total_events += 1
+        status = event.get("status")
+        reason = event.get("reason")
+        model = normalize_model_name(event.get("model_name"))
+        mode = event.get("route_mode")
+        family = event.get("extension_family")
+
+        if status:
+            self.by_status[status] += 1
+        if reason:
+            self.by_reason[reason] += 1
+        if model:
+            self.by_model[model] += 1
+            if mode:
+                self.by_model_mode[model][mode] += 1
+            if reason:
+                self.by_model_reason[model][reason] += 1
+        if mode:
+            self.by_mode[mode] += 1
+        if family:
+            self.by_family[family] += 1
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "total_events": self.total_events,
+            "by_status": dict(self.by_status),
+            "by_reason": dict(self.by_reason),
+            "by_model": dict(self.by_model),
+            "by_mode": dict(self.by_mode),
+            "by_family": dict(self.by_family),
+            "by_model_mode": {k: dict(v) for k, v in self.by_model_mode.items()},
+            "by_model_reason": {k: dict(v) for k, v in self.by_model_reason.items()},
+        }
+
+
 def save_telemetry_summary(events: List[Dict[str, Any]], out_path: str) -> None:
     summary = summarize_telemetry(events)
     save_json(summary, out_path)
