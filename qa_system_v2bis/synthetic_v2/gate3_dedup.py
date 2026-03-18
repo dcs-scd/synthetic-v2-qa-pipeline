@@ -11,12 +11,12 @@ def normalize_text(text: str) -> str:
 
 def qa_hash(question: str, answer: str) -> str:
     payload = normalize_text(question) + "\n---\n" + normalize_text(answer)
-    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def q_hash(question: str) -> str:
     payload = normalize_text(question)
-    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 class NoopQuestionSimilarityBackend:

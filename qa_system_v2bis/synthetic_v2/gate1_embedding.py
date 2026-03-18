@@ -77,7 +77,8 @@ def run_gate1_embedding(
             }
         }
 
-    if margin < 0.01:
+    MIN_CLASS_MARGIN = 0.01
+    if margin < MIN_CLASS_MARGIN:
         return {
             "ok": False,
             "reason": "LOW_CLASS_MARGIN",

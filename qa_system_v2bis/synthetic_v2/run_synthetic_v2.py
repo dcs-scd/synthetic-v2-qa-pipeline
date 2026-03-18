@@ -28,6 +28,7 @@ MAX_LLM_RESPONSE_SIZE = 50_000
 MAX_LLM_RETRIES = 3
 LLM_RETRY_BASE_DELAY = 1.0  # seconds
 LLM_RETRY_BACKOFF_FACTOR = 2.0
+PROGRESS_REPORT_INTERVAL = 500  # seeds between periodic summary logs
 
 
 def _safe_error_str(e: Exception, max_len: int = 200) -> str:
@@ -157,8 +158,6 @@ def process_seed(
     model_profiles: Dict[str, Any],
     llm_client,
     embedding_index,
-    dedup_index: InMemoryDedupIndex,
-    near_dup_threshold: float = 0.985
 ) -> Dict[str, Any]:
     route_mode = seed_row.get("route_mode")
     if route_mode == "skip":
@@ -204,16 +203,7 @@ def process_seed(
     if not gate2["ok"]:
         return reject_record(seed_row, gate2["reason"], gate2["details"])
 
-    # Gate 3
-    gate3 = run_gate3_dedup(
-        question=qa["question"],
-        answer=qa["answer"],
-        dedup_index=dedup_index,
-        near_dup_threshold=near_dup_threshold
-    )
-    if not gate3["ok"]:
-        return reject_record(seed_row, gate3["reason"], gate3["details"])
-
+    # Gate 3 (dedup) runs in the main thread to avoid TOCTOU races
     accepted = {
         "seed_id": seed_row.get("seed_id"),
         "model_name": model_name,
@@ -230,11 +220,9 @@ def process_seed(
         },
         "gate1": gate1,
         "gate2": gate2,
-        "gate3": gate3,
     }
 
-    dedup_index.add(accepted)
-    return accept_record(accepted)
+    return {"status": "pending_gate3", "record": accepted, "question": qa["question"], "answer": qa["answer"]}
 
 
 # -------------------------------------------------------------------
@@ -257,7 +245,6 @@ def generate_synthetic(
     quota_tracker: Optional[QuotaTracker] = None,
 ) -> Dict[str, Any]:
     from .io_utils import open_jsonl_writer
-    import threading
 
     events = []
     rows = routed_seeds[:limit] if limit is not None else routed_seeds
@@ -272,17 +259,14 @@ def generate_synthetic(
             else:
                 quota_tracker.record_skip(reason)
         rows = filtered
-    dedup_lock = threading.Lock()
 
-    def _process_and_dedup(seed_row):
-        # Process through gates 1 and 2 (thread-safe, no shared state)
+    def _process_through_gate2(seed_row):
+        # Process through gates 1 and 2 in thread pool (thread-safe, no shared state)
         result = process_seed(
             seed_row=seed_row,
             model_profiles=model_profiles,
             llm_client=llm_client,
             embedding_index=embedding_index,
-            dedup_index=dedup_index,
-            near_dup_threshold=near_dup_threshold
         )
         return seed_row, result
 
@@ -290,7 +274,7 @@ def generate_synthetic(
          open_jsonl_writer(rejected_path) as write_rejected:
 
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {pool.submit(_process_and_dedup, seed): seed for seed in rows}
+            futures = {pool.submit(_process_through_gate2, seed): seed for seed in rows}
 
             total = len(rows)
             accepted_count = 0
@@ -303,22 +287,7 @@ def generate_synthetic(
             for i, future in enumerate(iterator, 1):
                 seed_row, result = future.result()
 
-                if result["status"] == "accepted":
-                    write_accepted(result["record"])
-                    accepted_count += 1
-                    if quota_tracker:
-                        quota_tracker.record_accepted(seed_row)
-                    event = make_event(
-                        seed_row,
-                        status="accepted",
-                        reason="ACCEPTED",
-                        details={
-                            "gate1": result["record"]["gate1"],
-                            "gate2": result["record"]["gate2"],
-                            "gate3": result["record"]["gate3"],
-                        }
-                    )
-                else:
+                if result["status"] == "rejected":
                     write_rejected(result["record"])
                     rejected_count += 1
                     event = make_event(
@@ -327,13 +296,50 @@ def generate_synthetic(
                         reason=result["record"]["reason"],
                         details=result["record"].get("details", {})
                     )
+                elif result["status"] == "pending_gate3":
+                    # Gate 3 runs in main thread — no TOCTOU race on dedup_index
+                    gate3 = run_gate3_dedup(
+                        question=result["question"],
+                        answer=result["answer"],
+                        dedup_index=dedup_index,
+                        near_dup_threshold=near_dup_threshold,
+                    )
+                    if not gate3["ok"]:
+                        rej = reject_record(seed_row, gate3["reason"], gate3["details"])
+                        write_rejected(rej["record"])
+                        rejected_count += 1
+                        event = make_event(
+                            seed_row,
+                            status="rejected",
+                            reason=gate3["reason"],
+                            details=gate3["details"],
+                        )
+                    else:
+                        result["record"]["gate3"] = gate3
+                        dedup_index.add(result["record"])
+                        write_accepted(result["record"])
+                        accepted_count += 1
+                        if quota_tracker:
+                            quota_tracker.record_accepted(seed_row)
+                        event = make_event(
+                            seed_row,
+                            status="accepted",
+                            reason="ACCEPTED",
+                            details={
+                                "gate1": result["record"]["gate1"],
+                                "gate2": result["record"]["gate2"],
+                                "gate3": gate3,
+                            },
+                        )
+                else:
+                    continue
 
                 events.append(event)
                 if telemetry_path:
                     record_attempt(telemetry_path, event)
 
                 # Periodic summary every 500 seeds
-                if i % 500 == 0:
+                if i % PROGRESS_REPORT_INTERVAL == 0:
                     rate = accepted_count / max(i, 1) * 100
                     logger.info(
                         "Progress: %d/%d processed | %d accepted (%.1f%%) | %d rejected",

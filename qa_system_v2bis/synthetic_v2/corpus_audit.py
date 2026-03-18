@@ -1,7 +1,7 @@
 import argparse
 import re
 from collections import Counter, defaultdict
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict, List, Any, Set, Tuple
 
@@ -369,7 +369,7 @@ def audit_all_models(core_profiles: Dict[str, Any], records: List[Dict[str, Any]
         return model_name, audit_model_records(model_name, model_records, model_profile)
 
     items = list(core_profiles.get("models", {}).items())
-    with ProcessPoolExecutor() as pool:
+    with ThreadPoolExecutor() as pool:
         results = list(pool.map(_audit_one, items))
 
     return dict(results)

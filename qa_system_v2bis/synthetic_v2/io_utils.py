@@ -78,4 +78,5 @@ def open_jsonl_writer(path: str):
         yield write_row
     finally:
         f.flush()
+        os.fsync(f.fileno())
         f.close()

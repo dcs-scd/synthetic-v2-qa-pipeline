@@ -50,7 +50,7 @@ class QuotaTracker:
         seed_id = seed_row.get("seed_id") or "unknown"
 
         # Per-model cap
-        per_model = self.quotas.get("per_model", 50000)
+        per_model = self.quotas.get("per_model", DEFAULT_QUOTAS["per_model"])
         if self._model_counts[model] >= per_model:
             return False, f"QUOTA_MODEL:{model}"
 
