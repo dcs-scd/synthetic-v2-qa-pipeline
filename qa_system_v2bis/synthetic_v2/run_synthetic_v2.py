@@ -1,5 +1,7 @@
 import argparse
 import json
+import re as _re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any, List, Optional
 
 from .io_utils import load_json, load_jsonl, append_jsonl, save_json
@@ -9,6 +11,15 @@ from .gate2_model_validation import validate_generated_row
 from .gate3_dedup import InMemoryDedupIndex, run_gate3_dedup
 from .telemetry import make_event, record_attempt, summarize_telemetry
 from .text_utils import normalize_model_name
+
+
+_SENSITIVE_RE = _re.compile(r'(sk-|key-|token[=:])\S+', _re.IGNORECASE)
+MAX_LLM_RESPONSE_SIZE = 50_000
+
+
+def _safe_error_str(e: Exception, max_len: int = 200) -> str:
+    msg = str(e)[:max_len]
+    return _SENSITIVE_RE.sub('[REDACTED]', msg)
 
 
 # -------------------------------------------------------------------
@@ -44,6 +55,8 @@ class StaticJSONLLMClient:
 # -------------------------------------------------------------------
 
 def parse_llm_json(raw: str) -> Dict[str, Any]:
+    if len(raw) > MAX_LLM_RESPONSE_SIZE:
+        return {"ok": False, "error": "response_too_large", "raw": raw[:1000]}
     try:
         obj = json.loads(raw)
     except Exception as e:
@@ -117,13 +130,13 @@ def process_seed(
     try:
         prompt = build_prompt(seed_row, profile)
     except Exception as e:
-        return reject_record(seed_row, "PROMPT_BUILD_ERROR", {"error": str(e)})
+        return reject_record(seed_row, "PROMPT_BUILD_ERROR", {"error": _safe_error_str(e)})
 
     # LLM call
     try:
         raw = llm_client.generate(prompt, seed_row=seed_row)
     except Exception as e:
-        return reject_record(seed_row, "LLM_CALL_ERROR", {"error": str(e)})
+        return reject_record(seed_row, "LLM_CALL_ERROR", {"error": _safe_error_str(e)})
 
     parsed = parse_llm_json(raw)
     if not parsed["ok"]:
@@ -196,13 +209,18 @@ def generate_synthetic(
     rejected_path: str,
     telemetry_path: Optional[str] = None,
     near_dup_threshold: float = 0.985,
-    limit: Optional[int] = None
+    limit: Optional[int] = None,
+    max_workers: int = 8,
 ) -> Dict[str, Any]:
+    from .io_utils import open_jsonl_writer
+    import threading
+
     events = []
-
     rows = routed_seeds[:limit] if limit is not None else routed_seeds
+    dedup_lock = threading.Lock()
 
-    for seed_row in rows:
+    def _process_and_dedup(seed_row):
+        # Process through gates 1 and 2 (thread-safe, no shared state)
         result = process_seed(
             seed_row=seed_row,
             model_profiles=model_profiles,
@@ -211,31 +229,41 @@ def generate_synthetic(
             dedup_index=dedup_index,
             near_dup_threshold=near_dup_threshold
         )
+        return seed_row, result
 
-        if result["status"] == "accepted":
-            append_jsonl(accepted_path, result["record"])
-            event = make_event(
-                seed_row,
-                status="accepted",
-                reason="ACCEPTED",
-                details={
-                    "gate1": result["record"]["gate1"],
-                    "gate2": result["record"]["gate2"],
-                    "gate3": result["record"]["gate3"],
-                }
-            )
-        else:
-            append_jsonl(rejected_path, result["record"])
-            event = make_event(
-                seed_row,
-                status="rejected",
-                reason=result["record"]["reason"],
-                details=result["record"].get("details", {})
-            )
+    with open_jsonl_writer(accepted_path) as write_accepted, \
+         open_jsonl_writer(rejected_path) as write_rejected:
 
-        events.append(event)
-        if telemetry_path:
-            record_attempt(telemetry_path, event)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {pool.submit(_process_and_dedup, seed): seed for seed in rows}
+
+            for future in as_completed(futures):
+                seed_row, result = future.result()
+
+                if result["status"] == "accepted":
+                    write_accepted(result["record"])
+                    event = make_event(
+                        seed_row,
+                        status="accepted",
+                        reason="ACCEPTED",
+                        details={
+                            "gate1": result["record"]["gate1"],
+                            "gate2": result["record"]["gate2"],
+                            "gate3": result["record"]["gate3"],
+                        }
+                    )
+                else:
+                    write_rejected(result["record"])
+                    event = make_event(
+                        seed_row,
+                        status="rejected",
+                        reason=result["record"]["reason"],
+                        details=result["record"].get("details", {})
+                    )
+
+                events.append(event)
+                if telemetry_path:
+                    record_attempt(telemetry_path, event)
 
     return summarize_telemetry(events)
 
@@ -305,6 +333,12 @@ def main():
     llm_client = build_llm_client(args.llm_mode)
     embedding_index = build_embedding_index(args.embedding_mode)
     dedup_index = InMemoryDedupIndex()
+
+    from pathlib import Path
+    if Path(args.accepted).exists():
+        existing = load_jsonl(args.accepted, tolerant=True)
+        for row in existing:
+            dedup_index.add(row)
 
     summary = generate_synthetic(
         routed_seeds=routed_seeds,

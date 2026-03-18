@@ -3,141 +3,43 @@ import re
 from typing import Dict, List, Set, Any, Optional
 
 from .io_utils import load_json, save_json
-from .text_utils import normalize_model_name
+from .text_utils import normalize_model_name, norm_lower, STOPWORDS, GLOBAL_ALLOW as DEFAULT_GLOBAL_ALLOW, BACKTICK_RE
+from .profile_utils import (
+    build_core_identifier_set,
+    all_extension_identifiers,
+    all_extension_concepts,
+    get_family,
+    family_identifier_set,
+    family_concept_set,
+    get_framing_cues,
+    get_disallowed_themes,
+    summary_keywords,
+    extract_backticked_identifiers,
+    find_present_phrases,
+)
+from .extension_profile_builder import DEFAULT_FRAMING_CUES
 
 
-BACKTICK_RE = re.compile(r"`([^`]+)`")
 WORD_RE = re.compile(r"\b[a-zA-Z_][a-zA-Z0-9_\-]*\??\b")
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
-
-STOPWORDS = {
-    "the", "a", "an", "of", "to", "for", "in", "on", "at", "by", "with",
-    "and", "or", "is", "are", "was", "were", "be", "as", "from", "that",
-    "this", "these", "those", "it", "its", "their", "them", "what", "how",
-    "why", "when", "where", "which", "do", "does", "did", "can", "could",
-    "would", "should", "into", "about", "than", "then", "if", "we", "you",
-    "your", "our", "they", "he", "she", "i", "my", "me", "his", "her",
-    "them", "also", "just", "not", "only", "very", "more", "less", "same",
-    "different", "new", "old", "model", "netlogo"
-}
-
-DEFAULT_GLOBAL_ALLOW = {
-    "ticks", "tick", "turtles", "patches", "links", "behaviorspace",
-    "monitor", "plot", "reporter", "button", "chooser", "slider",
-    "switch", "world", "agent", "agents", "ask", "count", "mean",
-    "sum", "min", "max", "distance", "with", "of", "one-of", "n-of",
-    "if", "ifelse", "let", "set", "run", "repeat",
-    "variance", "standard", "deviation", "autocorrelation",
-    "time", "series", "parameter", "parameters", "metric", "metrics",
-    "experiment", "experiments", "spatial", "global", "local", "ratio"
-}
-
-
-def norm(s: str) -> str:
-    return re.sub(r"\s+", " ", str(s).strip().lower())
 
 
 def split_sentences(text: str) -> List[str]:
     return [x.strip() for x in SENTENCE_SPLIT_RE.split(text or "") if x.strip()]
 
 
-def extract_backticked_identifiers(text: str) -> List[str]:
-    return [norm(x) for x in BACKTICK_RE.findall(text or "")]
-
-
 def extract_words(text: str) -> List[str]:
-    return [norm(x) for x in WORD_RE.findall(text or "")]
-
-
-def summary_keywords(summary: str) -> Set[str]:
-    kws = set()
-    for w in extract_words(summary or ""):
-        if w not in STOPWORDS and len(w) >= 5:
-            kws.add(w)
-    return kws
-
-
-def build_core_identifier_set(core: Dict[str, Any]) -> Set[str]:
-    out = set()
-    for key in ["procedures", "variables", "breeds", "widgets"]:
-        for x in core.get(key, []):
-            out.add(norm(x))
-    return out
-
-
-def get_family(profile: Dict[str, Any], family_name: Optional[str]) -> Dict[str, Any]:
-    if not family_name:
-        return {}
-    for fam in profile.get("extensions", {}).get("families", []):
-        if fam.get("name") == family_name:
-            return fam
-    return {}
-
-
-def all_extension_identifiers(profile: Dict[str, Any]) -> Set[str]:
-    out = set()
-    for fam in profile.get("extensions", {}).get("families", []):
-        for x in fam.get("identifiers", []):
-            out.add(norm(x))
-    return out
-
-
-def family_identifier_set(profile: Dict[str, Any], family_name: Optional[str]) -> Set[str]:
-    fam = get_family(profile, family_name)
-    return {norm(x) for x in fam.get("identifiers", [])}
-
-
-def all_extension_concepts(profile: Dict[str, Any]) -> Set[str]:
-    out = set()
-    for fam in profile.get("extensions", {}).get("families", []):
-        for x in fam.get("concepts", []):
-            out.add(norm(x))
-    return out
-
-
-def family_concept_set(profile: Dict[str, Any], family_name: Optional[str]) -> Set[str]:
-    fam = get_family(profile, family_name)
-    return {norm(x) for x in fam.get("concepts", [])}
-
-
-def get_framing_cues(profile: Dict[str, Any]) -> Set[str]:
-    return {norm(x) for x in profile.get("extensions", {}).get("framing_cues", [])}
-
-
-def get_disallowed_themes(profile: Dict[str, Any]) -> Set[str]:
-    return {norm(x) for x in profile.get("extensions", {}).get("disallowed_unanchored_themes", [])}
-
-
-def find_present_phrases(text: str, phrases: Set[str]) -> List[str]:
-    t = norm(text)
-    hits = []
-    for p in phrases:
-        if p and p in t:
-            hits.append(p)
-    return sorted(set(hits))
+    return [norm_lower(x) for x in WORD_RE.findall(text or "")]
 
 
 def has_extension_framing(answer: str, profile: Dict[str, Any]) -> bool:
-    a = norm(answer)
+    a = norm_lower(answer)
     framing_cues = get_framing_cues(profile)
 
     if any(cue in a for cue in framing_cues):
         return True
 
-    generic = [
-        "extend the original model",
-        "extend the model",
-        "you could add",
-        "you could introduce",
-        "one extension is",
-        "if you modify the model",
-        "in an extended version",
-        "beyond the original code",
-        "as an extension",
-        "replace the original",
-        "refine the original"
-    ]
-    return any(x in a for x in generic)
+    return any(norm_lower(x) in a for x in DEFAULT_FRAMING_CUES)
 
 
 def implies_base_model_contains_extensions(answer: str, used_extension_ids: Set[str]) -> List[str]:
@@ -185,20 +87,22 @@ def implies_base_model_contains_extensions(answer: str, used_extension_ids: Set[
     ]
 
     for sent in sentences:
-        s = norm(sent)
+        s = norm_lower(sent)
 
         if any(safe in s for safe in safe_cues):
             continue
-
+        has_bad_cue = any(bad in s for bad in bad_cues)
+        if not has_bad_cue:
+            continue
         for ext_id in used_extension_ids:
-            if ext_id in s and any(bad in s for bad in bad_cues):
+            if ext_id in s:
                 bad_hits.append(ext_id)
 
     return sorted(set(bad_hits))
 
 
 def has_core_anchor(text: str, core_ids: Set[str], model_summary: str) -> bool:
-    t = norm(text)
+    t = norm_lower(text)
 
     # direct core-id anchor
     for cid in core_ids:
@@ -244,6 +148,128 @@ def detect_cross_family_extension_ids(
     return sorted([x for x in used_extension_ids if x not in allowed])
 
 
+def _validate_core_mode(
+    text: str,
+    mode: str,
+    core_ids: Set[str],
+    used_core_ids: Set[str],
+    used_ext_ids: Set[str],
+    unknown_ids: Set[str],
+    profile: Dict[str, Any],
+) -> Dict[str, Any]:
+    if unknown_ids:
+        return {
+            "ok": False,
+            "reason": "UNKNOWN_CORE_IDENTIFIER",
+            "details": {
+                "unknown_identifiers": sorted(unknown_ids),
+                "used_core_ids": sorted(used_core_ids),
+                "used_extension_ids": sorted(used_ext_ids),
+            }
+        }
+    if used_ext_ids:
+        return {
+            "ok": False,
+            "reason": "UNAPPROVED_EXTENSION_IDENTIFIER",
+            "details": {"extension_identifiers_in_core_mode": sorted(used_ext_ids)}
+        }
+    ext_concept_hits = detect_extension_concepts_in_core_mode(text, profile)
+    if ext_concept_hits:
+        return {
+            "ok": False,
+            "reason": "EXTENSION_CONTENT_IN_CORE_MODE",
+            "details": {"extension_concept_hits": ext_concept_hits[:30]}
+        }
+    disallowed_hits = detect_disallowed_theme_hits(text, profile)
+    if disallowed_hits:
+        return {
+            "ok": False,
+            "reason": "DISALLOWED_THEME",
+            "details": {"disallowed_hits": disallowed_hits}
+        }
+    return {
+        "ok": True,
+        "reason": None,
+        "details": {
+            "mode": mode,
+            "used_core_ids": sorted(used_core_ids),
+            "used_extension_ids": [],
+        }
+    }
+
+
+def _validate_extension_mode(
+    text: str,
+    text_n: str,
+    answer: str,
+    mode: str,
+    family_name: Optional[str],
+    core_ids: Set[str],
+    used_core_ids: Set[str],
+    used_ext_ids: Set[str],
+    unknown_ids: Set[str],
+    profile: Dict[str, Any],
+    summary: str,
+) -> Dict[str, Any]:
+    if unknown_ids:
+        return {
+            "ok": False,
+            "reason": "UNAPPROVED_EXTENSION_IDENTIFIER",
+            "details": {
+                "unknown_identifiers": sorted(unknown_ids),
+                "used_core_ids": sorted(used_core_ids),
+                "used_extension_ids": sorted(used_ext_ids),
+            }
+        }
+    cross_family_ids = detect_cross_family_extension_ids(used_ext_ids, profile, family_name)
+    if cross_family_ids:
+        return {
+            "ok": False,
+            "reason": "CROSS_FAMILY_EXTENSION_IDENTIFIER",
+            "details": {"family_name": family_name, "cross_family_extension_ids": cross_family_ids}
+        }
+    if used_ext_ids and not has_extension_framing(answer, profile):
+        return {
+            "ok": False,
+            "reason": "EXTENSION_REQUIRES_FRAMING",
+            "details": {"used_extension_ids": sorted(used_ext_ids)}
+        }
+    misrep = implies_base_model_contains_extensions(answer, used_ext_ids)
+    if misrep:
+        return {
+            "ok": False,
+            "reason": "BASE_MODEL_MISREPRESENTATION",
+            "details": {"misrepresented_extension_ids": misrep}
+        }
+    if not has_core_anchor(text_n, core_ids, summary):
+        return {
+            "ok": False,
+            "reason": "INSUFFICIENT_CORE_ANCHOR",
+            "details": {
+                "used_core_ids": sorted(used_core_ids),
+                "family_name": family_name,
+                "model_summary": summary
+            }
+        }
+    disallowed_hits = detect_disallowed_theme_hits(text, profile)
+    if disallowed_hits:
+        return {
+            "ok": False,
+            "reason": "DISALLOWED_THEME",
+            "details": {"disallowed_hits": disallowed_hits}
+        }
+    return {
+        "ok": True,
+        "reason": None,
+        "details": {
+            "mode": mode,
+            "family_name": family_name,
+            "used_core_ids": sorted(used_core_ids),
+            "used_extension_ids": sorted(used_ext_ids),
+        }
+    }
+
+
 def validate_gate2(
     question: str,
     answer: str,
@@ -252,19 +278,11 @@ def validate_gate2(
     family_name: Optional[str] = None,
     global_allow: Optional[Set[str]] = None
 ) -> Dict[str, Any]:
-    """
-    Mode-aware model/profile validation.
-
-    Modes:
-    - core_paraphrase
-    - core_repair
-    - anchored_extension
-    """
     if global_allow is None:
         global_allow = DEFAULT_GLOBAL_ALLOW
 
     text = f"{question or ''}\n{answer or ''}"
-    text_n = norm(text)
+    text_n = norm_lower(text)
 
     core = profile.get("core", {})
     core_ids = build_core_identifier_set(core)
@@ -279,139 +297,15 @@ def validate_gate2(
         if x not in core_ids and x not in ext_ids_all and x not in global_allow
     }
 
-    # ---- CORE MODES ----
     if mode in {"core_paraphrase", "core_repair"}:
-        if unknown_ids:
-            return {
-                "ok": False,
-                "reason": "UNKNOWN_CORE_IDENTIFIER",
-                "details": {
-                    "unknown_identifiers": sorted(unknown_ids),
-                    "used_core_ids": sorted(used_core_ids),
-                    "used_extension_ids": sorted(used_ext_ids),
-                }
-            }
-
-        if used_ext_ids:
-            return {
-                "ok": False,
-                "reason": "UNAPPROVED_EXTENSION_IDENTIFIER",
-                "details": {
-                    "extension_identifiers_in_core_mode": sorted(used_ext_ids)
-                }
-            }
-
-        ext_concept_hits = detect_extension_concepts_in_core_mode(text, profile)
-        if ext_concept_hits:
-            return {
-                "ok": False,
-                "reason": "EXTENSION_CONTENT_IN_CORE_MODE",
-                "details": {
-                    "extension_concept_hits": ext_concept_hits[:30]
-                }
-            }
-
-        disallowed_hits = detect_disallowed_theme_hits(text, profile)
-        if disallowed_hits:
-            return {
-                "ok": False,
-                "reason": "DISALLOWED_THEME",
-                "details": {
-                    "disallowed_hits": disallowed_hits
-                }
-            }
-
-        return {
-            "ok": True,
-            "reason": None,
-            "details": {
-                "mode": mode,
-                "used_core_ids": sorted(used_core_ids),
-                "used_extension_ids": [],
-            }
-        }
-
-    # ---- EXTENSION MODE ----
+        return _validate_core_mode(text, mode, core_ids, used_core_ids, used_ext_ids, unknown_ids, profile)
     elif mode == "anchored_extension":
-        if unknown_ids:
-            return {
-                "ok": False,
-                "reason": "UNAPPROVED_EXTENSION_IDENTIFIER",
-                "details": {
-                    "unknown_identifiers": sorted(unknown_ids),
-                    "used_core_ids": sorted(used_core_ids),
-                    "used_extension_ids": sorted(used_ext_ids),
-                }
-            }
-
-        cross_family_ids = detect_cross_family_extension_ids(used_ext_ids, profile, family_name)
-        if cross_family_ids:
-            return {
-                "ok": False,
-                "reason": "CROSS_FAMILY_EXTENSION_IDENTIFIER",
-                "details": {
-                    "family_name": family_name,
-                    "cross_family_extension_ids": cross_family_ids
-                }
-            }
-
-        if used_ext_ids and not has_extension_framing(answer, profile):
-            return {
-                "ok": False,
-                "reason": "EXTENSION_REQUIRES_FRAMING",
-                "details": {
-                    "used_extension_ids": sorted(used_ext_ids)
-                }
-            }
-
-        misrep = implies_base_model_contains_extensions(answer, used_ext_ids)
-        if misrep:
-            return {
-                "ok": False,
-                "reason": "BASE_MODEL_MISREPRESENTATION",
-                "details": {
-                    "misrepresented_extension_ids": misrep
-                }
-            }
-
-        if not has_core_anchor(text_n, core_ids, summary):
-            return {
-                "ok": False,
-                "reason": "INSUFFICIENT_CORE_ANCHOR",
-                "details": {
-                    "used_core_ids": sorted(used_core_ids),
-                    "family_name": family_name,
-                    "model_summary": summary
-                }
-            }
-
-        disallowed_hits = detect_disallowed_theme_hits(text, profile)
-        if disallowed_hits:
-            return {
-                "ok": False,
-                "reason": "DISALLOWED_THEME",
-                "details": {
-                    "disallowed_hits": disallowed_hits
-                }
-            }
-
-        return {
-            "ok": True,
-            "reason": None,
-            "details": {
-                "mode": mode,
-                "family_name": family_name,
-                "used_core_ids": sorted(used_core_ids),
-                "used_extension_ids": sorted(used_ext_ids),
-            }
-        }
-
+        return _validate_extension_mode(
+            text, text_n, answer, mode, family_name,
+            core_ids, used_core_ids, used_ext_ids, unknown_ids, profile, summary
+        )
     else:
-        return {
-            "ok": False,
-            "reason": "UNKNOWN_MODE",
-            "details": {"mode": mode}
-        }
+        return {"ok": False, "reason": "UNKNOWN_MODE", "details": {"mode": mode}}
 
 
 def validate_generated_row(

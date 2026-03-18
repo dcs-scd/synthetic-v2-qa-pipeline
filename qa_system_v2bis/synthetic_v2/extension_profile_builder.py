@@ -3,7 +3,7 @@ from copy import deepcopy
 from typing import Dict, List, Any, Tuple
 
 from .io_utils import load_json, save_json
-from .text_utils import normalize_model_name
+from .text_utils import normalize_model_name, norm_lower
 
 
 DEFAULT_GENERAL_RULES = [
@@ -32,10 +32,6 @@ DEFAULT_DISALLOWED_UNANCHORED_THEMES = [
     "financial derivatives",
     "cosmology"
 ]
-
-
-def norm(s: str) -> str:
-    return " ".join(str(s).strip().lower().split())
 
 
 def load_core_profiles(path: str) -> Dict[str, Any]:
@@ -83,7 +79,7 @@ def list_to_count_map(items: List[Dict[str, Any]], key: str = "term") -> Dict[st
         k = item.get(key)
         if not k:
             continue
-        out[norm(k)] = int(item.get("count", 0))
+        out[norm_lower(k)] = int(item.get("count", 0))
     return out
 
 
@@ -93,7 +89,7 @@ def phrase_list_to_count_map(items: List[Dict[str, Any]]) -> Dict[str, int]:
         phrase = item.get("phrase")
         if not phrase:
             continue
-        out[norm(phrase)] = int(item.get("count", 0))
+        out[norm_lower(phrase)] = int(item.get("count", 0))
     return out
 
 
@@ -114,7 +110,7 @@ def audit_support_for_family(family_spec: Dict[str, Any], audit_report: Dict[str
     concept_hits = []
 
     for x in identifiers:
-        nx = norm(x)
+        nx = norm_lower(x)
         identifier_hits.append({
             "identifier": x,
             "unsupported_count": unsupported_counts.get(nx, 0),
@@ -123,7 +119,7 @@ def audit_support_for_family(family_spec: Dict[str, Any], audit_report: Dict[str
         })
 
     for x in concepts:
-        nx = norm(x)
+        nx = norm_lower(x)
         concept_hits.append({
             "concept": x,
             "phrase_count": phrase_counts.get(nx, 0),
@@ -218,6 +214,8 @@ def build_extension_profiles(
 
     for raw_model_name, model_spec in model_specs.items():
         model_name = normalize_model_name(raw_model_name)
+        if not model_name:
+            continue
         audit_report = audit_reports.get(model_name, {})
         profile = build_extension_profile_for_model(
             model_name=model_name,
@@ -330,13 +328,13 @@ def validate_manual_specs_against_core(
         core = core_models[model_name].get("core", {})
         for key in ["procedures", "variables", "breeds", "widgets"]:
             for x in core.get(key, []):
-                core_terms.add(norm(x))
+                core_terms.add(norm_lower(x))
 
         for fam in model_spec.get("families", []):
             fam_name = fam["name"]
             overlaps = []
             for ident in fam.get("identifiers", []):
-                if norm(ident) in core_terms:
+                if norm_lower(ident) in core_terms:
                     overlaps.append(ident)
 
             if overlaps:

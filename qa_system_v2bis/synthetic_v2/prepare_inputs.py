@@ -143,7 +143,7 @@ def normalize_seed_row(seed: Dict[str, Any], corpus_index: Dict[str, Dict[str, A
         return None, issues
 
     norm_seed = {
-        "record_id": f"seed::{seed_id}" if seed_id else None,
+        "record_id": f"seed::{seed_id}" if seed_id else f"seed::_anon_{hash((model_name, seed_q))}",
         "source": "seed",
         "source_id": seed_id,
         "seed_id": seed_id,

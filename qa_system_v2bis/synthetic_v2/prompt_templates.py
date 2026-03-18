@@ -1,8 +1,7 @@
 from typing import Dict, Any, List, Optional
 
-
-def safe_text(x: Any) -> str:
-    return "" if x is None else str(x)
+from .text_utils import safe_text_or_empty
+from .profile_utils import get_family
 
 
 def comma_join(xs: List[str]) -> str:
@@ -18,7 +17,7 @@ def bullet_lines(xs: List[str], default: str = "None") -> str:
 
 def render_core_block(profile: Dict[str, Any]) -> str:
     core = profile.get("core", {})
-    summary = safe_text(core.get("model_summary", ""))
+    summary = safe_text_or_empty(core.get("model_summary", ""))
 
     procedures = comma_join(core.get("procedures", []))
     variables = comma_join(core.get("variables", []))
@@ -34,15 +33,6 @@ def render_core_block(profile: Dict[str, Any]) -> str:
         f"- breeds: {breeds}\n"
         f"- widgets: {widgets}\n"
     )
-
-
-def get_family(profile: Dict[str, Any], family_name: Optional[str]) -> Dict[str, Any]:
-    if not family_name:
-        return {}
-    for fam in profile.get("extensions", {}).get("families", []):
-        if fam.get("name") == family_name:
-            return fam
-    return {}
 
 
 def render_extension_block(profile: Dict[str, Any], family_name: str) -> str:
@@ -125,12 +115,12 @@ Priority order:
 4. Style
 
 CONTEXT:
-- model_name: {safe_text(seed.get("model_name"))}
-- level: {safe_text(seed.get("level"))}
-- tier: {safe_text(seed.get("tier"))}
+- model_name: {safe_text_or_empty(seed.get("model_name"))}
+- level: {safe_text_or_empty(seed.get("level"))}
+- tier: {safe_text_or_empty(seed.get("tier"))}
 - mode: core_paraphrase
 
-{common_style_block(safe_text(seed.get("level", "L3")))}
+{common_style_block(safe_text_or_empty(seed.get("level")) or "L3")}
 
 {render_core_block(profile)}
 
@@ -139,10 +129,10 @@ Paraphrase the seed into a new natural variant while remaining faithful to the o
 Do not add extensions, new layers, or invented model-specific mechanisms.
 
 SEED QUESTION:
-{safe_text(seed.get("seed_q") or seed.get("question"))}
+{safe_text_or_empty(seed.get("seed_q") or seed.get("question"))}
 
 SEED ANSWER:
-{safe_text(seed.get("seed_a") or seed.get("answer"))}
+{safe_text_or_empty(seed.get("seed_a") or seed.get("answer"))}
 
 OUTPUT:
 Return ONE JSON object only: {{"question": "...", "answer": "..."}}
@@ -170,12 +160,12 @@ Priority order:
 4. Style
 
 CONTEXT:
-- model_name: {safe_text(seed.get("model_name"))}
-- level: {safe_text(seed.get("level"))}
-- tier: {safe_text(seed.get("tier"))}
+- model_name: {safe_text_or_empty(seed.get("model_name"))}
+- level: {safe_text_or_empty(seed.get("level"))}
+- tier: {safe_text_or_empty(seed.get("tier"))}
 - mode: core_repair
 
-{common_style_block(safe_text(seed.get("level", "L3")))}
+{common_style_block(safe_text_or_empty(seed.get("level")) or "L3")}
 
 {render_core_block(profile)}
 
@@ -185,10 +175,10 @@ Do not preserve unsupported details literally.
 If you cannot produce a technically correct core-model answer, return {{"skip":"SEED_CONFLICT"}}.
 
 SEED QUESTION:
-{safe_text(seed.get("seed_q") or seed.get("question"))}
+{safe_text_or_empty(seed.get("seed_q") or seed.get("question"))}
 
 SEED ANSWER:
-{safe_text(seed.get("seed_a") or seed.get("answer"))}
+{safe_text_or_empty(seed.get("seed_a") or seed.get("answer"))}
 
 OUTPUT:
 Return ONE JSON object only:
@@ -221,13 +211,13 @@ Priority order:
 4. Style
 
 CONTEXT:
-- model_name: {safe_text(seed.get("model_name"))}
-- level: {safe_text(seed.get("level"))}
-- tier: {safe_text(seed.get("tier"))}
+- model_name: {safe_text_or_empty(seed.get("model_name"))}
+- level: {safe_text_or_empty(seed.get("level"))}
+- tier: {safe_text_or_empty(seed.get("tier"))}
 - mode: anchored_extension
 - extension_family: {family_name}
 
-{common_style_block(safe_text(seed.get("level", "L3")))}
+{common_style_block(safe_text_or_empty(seed.get("level")) or "L3")}
 
 {render_core_block(profile)}
 
@@ -238,10 +228,10 @@ Create a natural variant of the seed that stays anchored to the original model w
 If you introduce new states, variables, links, or metrics, explicitly frame them as additions or modifications to the original model.
 
 SEED QUESTION:
-{safe_text(seed.get("seed_q") or seed.get("question"))}
+{safe_text_or_empty(seed.get("seed_q") or seed.get("question"))}
 
 SEED ANSWER:
-{safe_text(seed.get("seed_a") or seed.get("answer"))}
+{safe_text_or_empty(seed.get("seed_a") or seed.get("answer"))}
 
 OUTPUT:
 Return ONE JSON object only: {{"question": "...", "answer": "..."}}

@@ -1,36 +1,15 @@
 import argparse
-import re
 from collections import Counter, defaultdict
 from typing import Dict, List, Any, Set, Tuple, Optional
 
 from .io_utils import load_json, load_jsonl, save_json, save_jsonl
-from .text_utils import normalize_model_name
-
-
-BACKTICK_RE = re.compile(r"`([^`]+)`")
-IDLIKE_RE = re.compile(r"\b[a-zA-Z_][a-zA-Z0-9_\-]*\??\b")
-
-STOPWORDS = {
-    "the", "a", "an", "of", "to", "for", "in", "on", "at", "by", "with",
-    "and", "or", "is", "are", "was", "were", "be", "as", "from", "that",
-    "this", "these", "those", "it", "its", "their", "them", "what", "how",
-    "why", "when", "where", "which", "do", "does", "did", "can", "could",
-    "would", "should", "into", "about", "than", "then", "if", "we", "you",
-    "your", "our", "they", "he", "she", "i", "my", "me", "also", "not",
-    "only", "more", "less", "same", "different", "new", "old", "model",
-    "netlogo"
-}
-
-GLOBAL_ALLOW = {
-    "ticks", "tick", "turtles", "patches", "links", "behaviorspace",
-    "monitor", "plot", "reporter", "button", "chooser", "slider",
-    "switch", "world", "agent", "agents", "ask", "count", "mean",
-    "sum", "min", "max", "distance", "with", "of", "one-of", "n-of",
-    "if", "ifelse", "let", "set", "run", "repeat", "parameter",
-    "parameters", "metric", "metrics", "experiment", "experiments",
-    "variance", "standard", "deviation", "autocorrelation",
-    "spatial", "global", "local", "threshold", "ratio", "time", "series"
-}
+from .text_utils import normalize_model_name, norm_lower, STOPWORDS, GLOBAL_ALLOW, BACKTICK_RE, IDLIKE_RE
+from .profile_utils import (
+    build_core_identifier_set as core_identifier_set,
+    all_extension_identifiers,
+    all_extension_concepts,
+    summary_keywords,
+)
 
 GENERIC_EXTENSION_INTENT_CUES = {
     "add", "adding", "extend", "extension", "modify", "modifying",
@@ -62,67 +41,30 @@ DEFAULT_ROUTING_CONFIG = {
 }
 
 
-def norm(s: str) -> str:
-    return re.sub(r"\s+", " ", str(s).strip().lower())
-
-
-def safe_text(x: Any) -> str:
+def safe_text(x):
     return "" if x is None else str(x)
 
 
-def extract_terms(text: str) -> Set[str]:
-    """
-    Lightweight term extraction:
-    - backtick identifiers
-    - identifier-like plain tokens
-    """
-    out = set()
+def extract_terms_and_counts(text: str):
+    """Extract terms as both a set and a counter in one pass."""
+    terms = set()
+    counts = Counter()
     t = text or ""
-
     for x in BACKTICK_RE.findall(t):
-        out.add(norm(x))
-
+        nx = norm_lower(x)
+        terms.add(nx)
+        counts[nx] += 1
     for x in IDLIKE_RE.findall(t):
-        nx = norm(x)
+        nx = norm_lower(x)
         if nx not in STOPWORDS:
-            out.add(nx)
-
-    return out
-
-
-def extract_term_counts(text: str) -> Counter:
-    out = Counter()
-    t = text or ""
-
-    for x in BACKTICK_RE.findall(t):
-        out[norm(x)] += 1
-
-    for x in IDLIKE_RE.findall(t):
-        nx = norm(x)
-        if nx not in STOPWORDS:
-            out[nx] += 1
-
-    return out
+            terms.add(nx)
+            counts[nx] += 1
+    return terms, counts
 
 
-def summary_keywords(summary: str) -> Set[str]:
-    out = set()
-    for tok in IDLIKE_RE.findall(summary or ""):
-        nt = norm(tok)
-        if nt not in STOPWORDS and len(nt) >= 5:
-            out.add(nt)
-    return out
-
-
-def core_identifier_set(profile: Dict[str, Any]) -> Set[str]:
-    core = profile.get("core", {})
-    out = set()
-
-    for key in ["procedures", "variables", "breeds", "widgets"]:
-        for x in core.get(key, []):
-            out.add(norm(x))
-
-    return out
+def extract_terms(text: str) -> set:
+    terms, _ = extract_terms_and_counts(text)
+    return terms
 
 
 def family_lookup(profile: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
@@ -130,37 +72,21 @@ def family_lookup(profile: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     for fam in profile.get("extensions", {}).get("families", []):
         out[fam["name"]] = {
             "name": fam["name"],
-            "concepts": {norm(x) for x in fam.get("concepts", [])},
-            "identifiers": {norm(x) for x in fam.get("identifiers", [])},
+            "concepts": {norm_lower(x) for x in fam.get("concepts", [])},
+            "identifiers": {norm_lower(x) for x in fam.get("identifiers", [])},
             "rules": fam.get("rules", []),
             "audit_support": fam.get("audit_support", {}),
         }
     return out
 
 
-def all_extension_identifiers(profile: Dict[str, Any]) -> Set[str]:
-    out = set()
-    for fam in profile.get("extensions", {}).get("families", []):
-        for x in fam.get("identifiers", []):
-            out.add(norm(x))
-    return out
-
-
-def all_extension_concepts(profile: Dict[str, Any]) -> Set[str]:
-    out = set()
-    for fam in profile.get("extensions", {}).get("families", []):
-        for x in fam.get("concepts", []):
-            out.add(norm(x))
-    return out
-
-
 def phrase_present(text: str, phrase: str) -> bool:
-    return norm(phrase) in norm(text)
+    return norm_lower(phrase) in norm_lower(text)
 
 
 def count_phrase_hits(text: str, phrases: Set[str]) -> Tuple[int, List[str]]:
     hits = []
-    t = norm(text)
+    t = norm_lower(text)
     for p in phrases:
         if p and p in t:
             hits.append(p)
@@ -178,9 +104,8 @@ def family_score_for_text(
     family_spec: Dict[str, Any],
     config: Dict[str, Any]
 ) -> Dict[str, Any]:
-    terms = extract_terms(text)
-    term_counts = extract_term_counts(text)
-    text_n = norm(text)
+    terms, term_counts = extract_terms_and_counts(text)
+    text_n = norm_lower(text)
 
     id_hits = sorted([t for t in terms if t in family_spec["identifiers"]])
     phrase_count, phrase_hits = count_phrase_hits(text_n, family_spec["concepts"])
@@ -243,7 +168,7 @@ def route_seed(
         config = DEFAULT_ROUTING_CONFIG
 
     text = f"{safe_text(seed_q)}\n{safe_text(seed_a)}"
-    text_n = norm(text)
+    text_n = norm_lower(text)
 
     core_ids = core_identifier_set(profile)
     ext_ids = all_extension_identifiers(profile)

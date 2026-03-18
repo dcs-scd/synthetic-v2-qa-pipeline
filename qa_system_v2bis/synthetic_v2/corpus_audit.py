@@ -1,29 +1,21 @@
 import argparse
 import re
 from collections import Counter, defaultdict
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Dict, List, Any, Set, Tuple
 
 from .io_utils import load_json, load_jsonl, save_json
 from .text_utils import normalize_model_name
+from .text_utils import norm_lower, STOPWORDS as _BASE_STOPWORDS, GLOBAL_ALLOW, BACKTICK_RE, IDLIKE_RE, safe_filename
 
 
-BACKTICK_RE = re.compile(r"`([^`]+)`")
 BRACKET_RE = re.compile(r"\[([^\]]+)\]")
 QUOTE_RE = re.compile(r'"([^"\n]{1,120})"|\'([^\'\n]{1,120})\'')
-IDLIKE_RE = re.compile(r"\b[a-zA-Z_][a-zA-Z0-9_\-]*\??\b")
 
 # N-gram candidate extraction
-STOPWORDS = {
-    "the", "a", "an", "of", "to", "for", "in", "on", "at", "by", "with",
-    "and", "or", "is", "are", "was", "were", "be", "as", "from", "that",
-    "this", "these", "those", "it", "its", "their", "them", "what", "how",
-    "why", "when", "where", "which", "do", "does", "did", "can", "could",
-    "would", "should", "into", "about", "than", "then", "if", "we", "you",
-    "your", "our", "they", "he", "she", "i", "my", "me", "also", "not",
-    "only", "more", "less", "same", "different", "new", "old", "model",
-    "netlogo", "use", "using", "used"
-}
+STOPWORDS = _BASE_STOPWORDS | {"use", "using", "used"}
+
 
 PHRASE_KEYWORDS = {
     "state", "states", "diagram", "transition", "threshold", "vision",
@@ -37,23 +29,6 @@ PHRASE_KEYWORDS = {
     "autocorrelation", "variance", "metric", "metrics", "optimization",
     "speed", "execution", "efficiency", "cache", "hub", "centrality"
 }
-
-# NetLogo/general terms that should not be treated as unsupported model-specific drift.
-GLOBAL_ALLOW = {
-    "ticks", "tick", "turtles", "patches", "links", "behaviorspace",
-    "monitor", "plot", "reporter", "button", "chooser", "slider",
-    "switch", "world", "agent", "agents", "ask", "count", "mean",
-    "sum", "min", "max", "distance", "with", "of", "one-of", "n-of",
-    "if", "ifelse", "let", "set", "run", "repeat", "time", "series",
-    "standard", "deviation", "variance", "experiment", "experiments",
-    "parameter", "parameters", "metric", "metrics", "plot", "plots",
-    "sweep", "sweeps", "ratio", "density", "local", "global", "spatial",
-    "threshold", "hypothesis", "hypotheses", "validation"
-}
-
-
-def norm(s: str) -> str:
-    return re.sub(r"\s+", " ", str(s).strip().lower())
 
 
 def short_example(record: Dict[str, Any], max_len: int = 220) -> Dict[str, Any]:
@@ -80,7 +55,7 @@ def build_core_term_set(model_profile: Dict[str, Any]) -> Set[str]:
 
     for key in ["procedures", "variables", "breeds", "widgets"]:
         for x in core.get(key, []):
-            out.add(norm(x))
+            out.add(norm_lower(x))
 
     return out
 
@@ -95,19 +70,19 @@ def build_aux_term_set(model_profile: Dict[str, Any]) -> Set[str]:
 
     # string literals may appear in corpus as legitimate model-specific text
     for x in rp.get("string_literals", []):
-        out.add(norm(x))
+        out.add(norm_lower(x))
 
     # direct interface widget extraction
     for x in rp.get("interface_widgets", []):
-        out.add(norm(x))
+        out.add(norm_lower(x))
 
     return out
 
 
 def build_unresolved_sets(model_profile: Dict[str, Any]) -> Tuple[Set[str], Set[str]]:
     rp = model_profile.get("raw_parse", {})
-    unresolved = {norm(x) for x in rp.get("unresolved_identifiers", [])}
-    widget_candidates = {norm(x) for x in rp.get("widget_candidates_from_code", [])}
+    unresolved = {norm_lower(x) for x in rp.get("unresolved_identifiers", [])}
+    widget_candidates = {norm_lower(x) for x in rp.get("widget_candidates_from_code", [])}
     return unresolved, widget_candidates
 
 
@@ -127,15 +102,15 @@ def extract_exact_terms(text: str, core_terms: Set[str], unresolved_hint_terms: 
     t = text or ""
 
     for x in BACKTICK_RE.findall(t):
-        out[norm(x)] += 1
+        out[norm_lower(x)] += 1
 
     for x in BRACKET_RE.findall(t):
         x = x.strip()
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_\-]*\??", x):
-            out[norm(x)] += 1
+            out[norm_lower(x)] += 1
 
     for tok in IDLIKE_RE.findall(t):
-        nt = norm(tok)
+        nt = norm_lower(tok)
         if (
             nt in core_terms
             or nt in unresolved_hint_terms
@@ -158,12 +133,12 @@ def extract_phrase_candidates(text: str, min_n: int = 2, max_n: int = 4) -> Coun
 
     # quoted phrases
     for g1, g2 in QUOTE_RE.findall(t):
-        phrase = norm(g1 or g2)
+        phrase = norm_lower(g1 or g2)
         if phrase and 1 <= len(phrase.split()) <= 5:
             out[phrase] += 1
 
     # ngrams
-    tokens = [norm(x) for x in IDLIKE_RE.findall(t)]
+    tokens = [norm_lower(x) for x in IDLIKE_RE.findall(t)]
     tokens = [x for x in tokens if x not in STOPWORDS]
 
     for n in range(min_n, max_n + 1):
@@ -388,12 +363,16 @@ def summarize_reports(per_model_reports: Dict[str, Any]) -> Dict[str, Any]:
 def audit_all_models(core_profiles: Dict[str, Any], records: List[Dict[str, Any]]) -> Dict[str, Any]:
     grouped = group_records_by_model(records)
 
-    out = {}
-    for model_name, model_profile in core_profiles.get("models", {}).items():
+    def _audit_one(item):
+        model_name, model_profile = item
         model_records = grouped.get(model_name, [])
-        out[model_name] = audit_model_records(model_name, model_records, model_profile)
+        return model_name, audit_model_records(model_name, model_records, model_profile)
 
-    return out
+    items = list(core_profiles.get("models", {}).items())
+    with ProcessPoolExecutor() as pool:
+        results = list(pool.map(_audit_one, items))
+
+    return dict(results)
 
 
 def main():
@@ -413,7 +392,7 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     for model_name, rep in per_model_reports.items():
-        save_json(rep, str(out_dir / f"{model_name}.json"))
+        save_json(rep, str(out_dir / f"{safe_filename(model_name)}.json"))
 
     save_json(per_model_reports, str(out_dir / "_all_models.json"))
 

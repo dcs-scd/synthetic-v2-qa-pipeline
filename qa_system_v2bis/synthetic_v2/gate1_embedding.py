@@ -53,7 +53,7 @@ def run_gate1_embedding(
     sim = float(best.get("sim", 0.0))
     margin = float(best.get("margin", 0.0))
 
-    if best_class is not None and best_class != class_id:
+    if class_id is not None and best_class is not None and best_class != class_id:
         return {
             "ok": False,
             "reason": "WRONG_CLASS_NEIGHBORHOOD",
