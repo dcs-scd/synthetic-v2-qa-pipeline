@@ -1,0 +1,337 @@
+{
+  "selected_tasks": {
+    "task_count": 10000,
+    "by_mode": {
+      "anchored_extension": 1017,
+      "core_repair": 8983
+    },
+    "by_family": {
+      "early_warning_metrics": 113,
+      "network_layer": 372,
+      "large_scale_optimization": 123,
+      "state_refinement": 349,
+      "broadcast_media": 44,
+      "measurement_extension": 16
+    },
+    "by_provider": {
+      "gpt-5.4-nano": 9683,
+      "grok-4-1-fast-reasoning": 317
+    },
+    "by_tier": {
+      "A": 2196,
+      "C": 7166,
+      "B": 638
+    },
+    "by_model_bucket": {
+      "mid_capacity": 3535,
+      "low_capacity": 6465
+    },
+    "top_models": [
+      [
+        "rebellion",
+        1026
+      ],
+      [
+        "virus",
+        782
+      ],
+      [
+        "segregation",
+        725
+      ],
+      [
+        "traffic_basic",
+        643
+      ],
+      [
+        "wealth_distribution",
+        620
+      ],
+      [
+        "fireflies",
+        603
+      ],
+      [
+        "peppered_moths",
+        590
+      ],
+      [
+        "rumor_mill",
+        575
+      ],
+      [
+        "daisyworld",
+        571
+      ],
+      [
+        "language_change",
+        529
+      ],
+      [
+        "flocking",
+        526
+      ],
+      [
+        "traffic_grid",
+        501
+      ],
+      [
+        "ants",
+        482
+      ],
+      [
+        "wolf_sheep_predation",
+        392
+      ],
+      [
+        "percolation",
+        382
+      ],
+      [
+        "shepherds",
+        298
+      ],
+      [
+        "termites",
+        273
+      ],
+      [
+        "voting",
+        217
+      ],
+      [
+        "altruism",
+        213
+      ],
+      [
+        "cooperation",
+        42
+      ],
+      [
+        "gendrift_t_interact",
+        9
+      ],
+      [
+        "giant_component",
+        1
+      ]
+    ],
+    "by_transform": {
+      "extension_experiment_design": 282,
+      "extension_limitation_analysis": 122,
+      "extension_reframing": 104,
+      "extension_compare_baseline": 387,
+      "extension_operationalization": 122,
+      "unsupported_identifier_repair": 771,
+      "core_operationalization_repair": 5393,
+      "mechanism_grounding_repair": 2819
+    },
+    "by_support_relation": {
+      "same_class_same_model": 5480,
+      "same_model": 4520
+    },
+    "top_seeds_by_task_count": [
+      [
+        "STE-GENERAL-NL-1191",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-1133",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-0418",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-1259",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-0668",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-221",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-11646",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-0317",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-1986",
+        16
+      ],
+      [
+        "STE-GENERAL-NL-1500",
+        16
+      ],
+      [
+        "STE-GENERAL-NL-1197",
+        16
+      ],
+      [
+        "STE-GENERAL-NL-1251",
+        16
+      ],
+      [
+        "STE-GENERAL-NL-0859",
+        15
+      ],
+      [
+        "STE-GENERAL-NL-0681",
+        12
+      ],
+      [
+        "STE-TRAFFIC-BASIC-NL-0039",
+        12
+      ],
+      [
+        "STE-FLOCKING-NL-0115",
+        12
+      ],
+      [
+        "STE-WOLF-SHEEP-PREDATION-NL-0011",
+        12
+      ],
+      [
+        "STE-GENERAL-NL-2382",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-2406",
+        10
+      ],
+      [
+        "STE-VIRUS-NL-1026",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-2202",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1201",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-0518",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1633",
+        10
+      ],
+      [
+        "STE-REBELLION-NL-0086",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-6253",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-3962",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-222",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-0209",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-2899",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-11110",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-9320",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-10024",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-9021",
+        10
+      ],
+      [
+        "STE-REBELLION-NL-3220",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-4609",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1896",
+        10
+      ],
+      [
+        "STE-REBELLION-NL-L2-0019-v3",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-4153",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1905",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-9906",
+        10
+      ],
+      [
+        "STE-REBELLION-NL-L2-0013-v2",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-2469",
+        10
+      ],
+      [
+        "STE-REBELLION-NL-0287",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-3220",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-9776",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-9023",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-11910",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-0466",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-394",
+        10
+      ]
+    ]
+  },
+  "model_capacity_report_used": true
+}
