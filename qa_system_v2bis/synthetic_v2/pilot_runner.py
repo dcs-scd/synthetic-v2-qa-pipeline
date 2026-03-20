@@ -13,7 +13,7 @@ import logging
 import os
 import sys
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -341,6 +341,9 @@ def _gate_results(
     rejected = []
     by_reason: Counter = Counter()
     by_status: Counter = Counter()
+    by_model_status: Dict[str, Counter] = defaultdict(Counter)
+    by_model_reason: Dict[str, Counter] = defaultdict(Counter)
+    telemetry_rows: List[Dict[str, Any]] = []
 
     for idx, (merged_seed, prompt) in enumerate(task_seed_pairs):
         task_key = merged_seed.get("task_key", f"idx-{idx}")
@@ -351,9 +354,17 @@ def _gate_results(
         if raw is None or raw == "":
             by_reason["NO_RESPONSE"] += 1
             by_status["rejected"] += 1
+            by_model_status[model_name]["rejected"] += 1
+            by_model_reason[model_name]["NO_RESPONSE"] += 1
             rejected.append({
                 "task_key": task_key, "model_name": model_name,
                 "reason": "NO_RESPONSE", "provider": provider,
+            })
+            telemetry_rows.append({
+                "model_name": model_name, "status": "rejected",
+                "reason": "NO_RESPONSE",
+                "route_mode": merged_seed.get("route_mode"),
+                "provider": provider, "task_key": task_key,
             })
             continue
 
@@ -363,10 +374,18 @@ def _gate_results(
             reason = "BAD_JSON"
             by_reason[reason] += 1
             by_status["rejected"] += 1
+            by_model_status[model_name]["rejected"] += 1
+            by_model_reason[model_name][reason] += 1
             rejected.append({
                 "task_key": task_key, "model_name": model_name,
                 "reason": reason, "provider": provider,
                 "error": parsed.get("error", ""),
+            })
+            telemetry_rows.append({
+                "model_name": model_name, "status": "rejected",
+                "reason": reason,
+                "route_mode": merged_seed.get("route_mode"),
+                "provider": provider, "task_key": task_key,
             })
             continue
 
@@ -385,9 +404,17 @@ def _gate_results(
             reason = g2.get("reason") or "GATE2_FAIL"
             by_reason[reason] += 1
             by_status["rejected"] += 1
+            by_model_status[model_name]["rejected"] += 1
+            by_model_reason[model_name][reason] += 1
             rejected.append({
                 "task_key": task_key, "model_name": model_name,
                 "reason": reason, "provider": provider,
+            })
+            telemetry_rows.append({
+                "model_name": model_name, "status": "rejected",
+                "reason": reason,
+                "route_mode": merged_seed.get("route_mode"),
+                "provider": provider, "task_key": task_key,
             })
             continue
 
@@ -397,15 +424,30 @@ def _gate_results(
             reason = g3.get("reason") or "NEAR_DUP_QUESTION"
             by_reason[reason] += 1
             by_status["rejected"] += 1
+            by_model_status[model_name]["rejected"] += 1
+            by_model_reason[model_name][reason] += 1
             rejected.append({
                 "task_key": task_key, "model_name": model_name,
                 "reason": reason, "provider": provider,
+            })
+            telemetry_rows.append({
+                "model_name": model_name, "status": "rejected",
+                "reason": reason,
+                "route_mode": merged_seed.get("route_mode"),
+                "provider": provider, "task_key": task_key,
             })
             continue
 
         # Accepted
         dedup_index.add({"question": gen_q, "answer": gen_a})
         by_status["accepted"] += 1
+        by_model_status[model_name]["accepted"] += 1
+        telemetry_rows.append({
+            "model_name": model_name, "status": "accepted",
+            "reason": None,
+            "route_mode": merged_seed.get("route_mode"),
+            "provider": provider, "task_key": task_key,
+        })
         accepted.append({
             "task_key": task_key,
             "seed_id": merged_seed.get("seed_id"),
@@ -420,11 +462,14 @@ def _gate_results(
     # Write results
     save_jsonl(accepted, os.path.join(tranche_dir, "accepted.jsonl"))
     save_jsonl(rejected, os.path.join(tranche_dir, "rejected.jsonl"))
+    save_jsonl(telemetry_rows, os.path.join(tranche_dir, "telemetry.jsonl"))
 
     summary = {
         "total_events": len(task_seed_pairs),
         "by_status": dict(by_status),
         "by_reason": dict(by_reason),
+        "by_model_status": {k: dict(v) for k, v in by_model_status.items()},
+        "by_model_reason": {k: dict(v) for k, v in by_model_reason.items()},
     }
     return summary
 
@@ -668,7 +713,18 @@ def main() -> None:
 
         tranche_num += 1
 
-    # 7. Final summary
+    # 7. Concatenate per-tranche telemetry into all_telemetry.jsonl
+    all_telemetry: List[Dict[str, Any]] = []
+    for ts in tranche_summaries:
+        tdir = ts.get("tranche_dir", "")
+        telem_path = os.path.join(tdir, "telemetry.jsonl")
+        if Path(telem_path).exists():
+            all_telemetry.extend(load_jsonl(telem_path, tolerant=True))
+    if all_telemetry:
+        save_jsonl(all_telemetry, os.path.join(args.out_dir, "all_telemetry.jsonl"))
+        logger.info("Wrote %d telemetry rows to all_telemetry.jsonl", len(all_telemetry))
+
+    # 8. Final summary
     final_summary = {
         "total_accepted": total_accepted,
         "total_rejected": total_rejected,
