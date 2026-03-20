@@ -1,0 +1,32 @@
+{
+  "selection": {
+    "enabled": true,
+    "target_total": 10000,
+    "route_mode_targets": {
+      "core_repair": 7000,
+      "anchored_extension": 1500,
+      "freeform_extension": 1500
+    },
+    "tier_targets": {
+      "A": 2000,
+      "B": 800,
+      "C": 7200
+    },
+    "provider_targets": {
+      "gpt-5.4-nano": 8500,
+      "grok-4-1-fast-reasoning": 1500
+    },
+    "model_bucket_targets": {
+      "high_volume": 4000,
+      "mid_volume": 3500,
+      "long_tail": 2500
+    }
+  },
+  "tranche_size": 2000,
+  "stop_conditions": {
+    "bad_json_max_pct": 5.0,
+    "llm_error_max_pct": 5.0,
+    "dedup_max_pct": 25.0,
+    "acceptance_min_pct": 75.0
+  }
+}

@@ -1,0 +1,397 @@
+{
+  "selected_tasks": {
+    "task_count": 10000,
+    "by_mode": {
+      "anchored_extension": 1422,
+      "core_repair": 8578
+    },
+    "by_family": {
+      "early_warning_metrics": 113,
+      "network_layer": 372,
+      "state_refinement": 738,
+      "large_scale_optimization": 123,
+      "measurement_extension": 32,
+      "broadcast_media": 44
+    },
+    "by_provider": {
+      "gpt-5.4-nano": 9445,
+      "grok-4-1-fast-reasoning": 555
+    },
+    "by_tier": {
+      "A": 2603,
+      "C": 6543,
+      "B": 854
+    },
+    "by_model_bucket": {
+      "mid_volume": 4627,
+      "long_tail": 1420,
+      "high_volume": 3953
+    },
+    "top_models": [
+      [
+        "rebellion",
+        958
+      ],
+      [
+        "shepherds",
+        712
+      ],
+      [
+        "virus",
+        597
+      ],
+      [
+        "segregation",
+        578
+      ],
+      [
+        "wealth_distribution",
+        545
+      ],
+      [
+        "traffic_basic",
+        529
+      ],
+      [
+        "fireflies",
+        522
+      ],
+      [
+        "daisyworld",
+        485
+      ],
+      [
+        "peppered_moths",
+        467
+      ],
+      [
+        "flocking",
+        431
+      ],
+      [
+        "rumor_mill",
+        406
+      ],
+      [
+        "termites",
+        398
+      ],
+      [
+        "language_change",
+        386
+      ],
+      [
+        "traffic_grid",
+        348
+      ],
+      [
+        "ants",
+        334
+      ],
+      [
+        "percolation",
+        287
+      ],
+      [
+        "wolf_sheep_predation",
+        284
+      ],
+      [
+        "altruism",
+        279
+      ],
+      [
+        "voting",
+        278
+      ],
+      [
+        "cooperation",
+        270
+      ],
+      [
+        "fire",
+        213
+      ],
+      [
+        "gendrift_t_interact",
+        198
+      ],
+      [
+        "giant_component",
+        137
+      ],
+      [
+        "gendrift_t_reproduce",
+        94
+      ],
+      [
+        "preferential_attachment",
+        87
+      ],
+      [
+        "cooperation_cows",
+        63
+      ],
+      [
+        "gendrift_t",
+        54
+      ],
+      [
+        "sandpile",
+        46
+      ],
+      [
+        "prisoners_dilemma",
+        14
+      ]
+    ],
+    "by_transform": {
+      "extension_experiment_design": 471,
+      "extension_limitation_analysis": 122,
+      "extension_reframing": 122,
+      "extension_compare_baseline": 585,
+      "extension_operationalization": 122,
+      "core_operationalization_repair": 3973,
+      "unsupported_identifier_repair": 1544,
+      "mechanism_grounding_repair": 3061
+    },
+    "by_support_relation": {
+      "same_class_same_model": 6922,
+      "same_model": 3078
+    },
+    "top_seeds_by_task_count": [
+      [
+        "STE-GENERAL-NL-1006",
+        30
+      ],
+      [
+        "STE-GENERAL-NL-1197",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-1251",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-1191",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-1133",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-0418",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-1259",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-0668",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-221",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-11646",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-0317",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-0967",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-1986",
+        16
+      ],
+      [
+        "STE-GENERAL-NL-1500",
+        16
+      ],
+      [
+        "STE-SHEPHERDS-NL-14402",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-4980",
+        10
+      ],
+      [
+        "STE-L2F-HOMOPHIL-SHEPHERDS-03",
+        10
+      ],
+      [
+        "STE-L2E-HOMOPHIL-SHEPHERDS-18",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-5202",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-G107",
+        10
+      ],
+      [
+        "STE-SHEPHERDS-NL-3372",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1802",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-2023",
+        10
+      ],
+      [
+        "STE-SHEPHERDS-NL-0218",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-0518",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-10913",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1126",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-2382",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-2406",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-0685",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-0978",
+        10
+      ],
+      [
+        "STE-WOLF-SHEEP-PREDATION-NL-4078",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1019",
+        10
+      ],
+      [
+        "STE-VIRUS-NL-1026",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-6325",
+        10
+      ],
+      [
+        "STE-FLOCKING-NL-0076",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-0972",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-2202",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1079",
+        10
+      ],
+      [
+        "STE-FLOCKING-NL-0251",
+        10
+      ],
+      [
+        "STE-FIREFLIES-NL-0512",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1219",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-0032",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1136",
+        10
+      ],
+      [
+        "STE-TRAFFIC-BASIC-NL-0322",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1007",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1257",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1207",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1184",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-6326",
+        10
+      ]
+    ]
+  },
+  "config": {
+    "selection": {
+      "enabled": true,
+      "target_total": 10000,
+      "route_mode_targets": {
+        "core_repair": 7000,
+        "anchored_extension": 1500,
+        "freeform_extension": 1500
+      },
+      "tier_targets": {
+        "A": 2000,
+        "B": 800,
+        "C": 7200
+      },
+      "provider_targets": {
+        "gpt-5.4-nano": 8500,
+        "grok-4-1-fast-reasoning": 1500
+      },
+      "model_bucket_targets": {
+        "high_volume": 4000,
+        "mid_volume": 3500,
+        "long_tail": 2500
+      }
+    },
+    "tranche_size": 2000,
+    "stop_conditions": {
+      "bad_json_max_pct": 5.0,
+      "llm_error_max_pct": 5.0,
+      "dedup_max_pct": 25.0,
+      "acceptance_min_pct": 75.0
+    }
+  }
+}

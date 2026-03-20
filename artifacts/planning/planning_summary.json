@@ -1,0 +1,369 @@
+{
+  "all_tasks": {
+    "task_count": 14294,
+    "by_mode": {
+      "anchored_extension": 1422,
+      "core_repair": 12872
+    },
+    "by_family": {
+      "early_warning_metrics": 113,
+      "network_layer": 372,
+      "state_refinement": 738,
+      "large_scale_optimization": 123,
+      "measurement_extension": 32,
+      "broadcast_media": 44
+    },
+    "by_provider": {
+      "gpt-5.4-nano": 13739,
+      "grok-4-1-fast-reasoning": 555
+    },
+    "by_tier": {
+      "A": 2603,
+      "C": 10837,
+      "B": 854
+    },
+    "by_model_bucket": {
+      "mid_volume": 6834,
+      "long_tail": 2152,
+      "high_volume": 5308
+    },
+    "top_models": [
+      [
+        "rebellion",
+        1026
+      ],
+      [
+        "virus",
+        782
+      ],
+      [
+        "shepherds",
+        756
+      ],
+      [
+        "segregation",
+        725
+      ],
+      [
+        "traffic_basic",
+        722
+      ],
+      [
+        "wealth_distribution",
+        711
+      ],
+      [
+        "fireflies",
+        687
+      ],
+      [
+        "peppered_moths",
+        667
+      ],
+      [
+        "daisyworld",
+        662
+      ],
+      [
+        "rumor_mill",
+        628
+      ],
+      [
+        "flocking",
+        596
+      ],
+      [
+        "language_change",
+        590
+      ],
+      [
+        "traffic_grid",
+        567
+      ],
+      [
+        "termites",
+        547
+      ],
+      [
+        "ants",
+        538
+      ],
+      [
+        "voting",
+        512
+      ],
+      [
+        "altruism",
+        485
+      ],
+      [
+        "percolation",
+        458
+      ],
+      [
+        "gendrift_t_interact",
+        427
+      ],
+      [
+        "wolf_sheep_predation",
+        418
+      ],
+      [
+        "cooperation",
+        394
+      ],
+      [
+        "fire",
+        285
+      ],
+      [
+        "giant_component",
+        273
+      ],
+      [
+        "gendrift_t_reproduce",
+        214
+      ],
+      [
+        "sandpile",
+        174
+      ],
+      [
+        "preferential_attachment",
+        155
+      ],
+      [
+        "gendrift_t",
+        140
+      ],
+      [
+        "cooperation_cows",
+        105
+      ],
+      [
+        "prisoners_dilemma",
+        50
+      ]
+    ],
+    "by_transform": {
+      "extension_experiment_design": 471,
+      "extension_limitation_analysis": 122,
+      "extension_reframing": 122,
+      "extension_compare_baseline": 585,
+      "extension_operationalization": 122,
+      "core_operationalization_repair": 6913,
+      "unsupported_identifier_repair": 1544,
+      "mechanism_grounding_repair": 4415
+    },
+    "by_support_relation": {
+      "same_class_same_model": 6922,
+      "same_model": 7372
+    },
+    "top_seeds_by_task_count": [
+      [
+        "STE-GENERAL-NL-1006",
+        30
+      ],
+      [
+        "STE-GENERAL-NL-1197",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-1251",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-1191",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-1133",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-0418",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-1259",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-0668",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-221",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-11646",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-0317",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-0967",
+        20
+      ],
+      [
+        "STE-GENERAL-NL-1986",
+        16
+      ],
+      [
+        "STE-GENERAL-NL-1500",
+        16
+      ],
+      [
+        "STE-GENERAL-NL-0859",
+        15
+      ],
+      [
+        "STE-TRAFFIC-BASIC-NL-0039",
+        15
+      ],
+      [
+        "STE-GENERAL-NL-0681",
+        15
+      ],
+      [
+        "STE-WOLF-SHEEP-PREDATION-NL-0011",
+        15
+      ],
+      [
+        "STE-FLOCKING-NL-0115",
+        15
+      ],
+      [
+        "STE-SHEPHERDS-NL-14402",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-4980",
+        10
+      ],
+      [
+        "STE-L2F-HOMOPHIL-SHEPHERDS-03",
+        10
+      ],
+      [
+        "STE-L2E-HOMOPHIL-SHEPHERDS-18",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-5202",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-G107",
+        10
+      ],
+      [
+        "STE-SHEPHERDS-NL-3372",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1802",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-2023",
+        10
+      ],
+      [
+        "STE-SHEPHERDS-NL-0218",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-0518",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-10913",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1126",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-2382",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-2406",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-0685",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-0978",
+        10
+      ],
+      [
+        "STE-WOLF-SHEEP-PREDATION-NL-4078",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1019",
+        10
+      ],
+      [
+        "STE-VIRUS-NL-1026",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-6325",
+        10
+      ],
+      [
+        "STE-FLOCKING-NL-0076",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-0972",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-2202",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1079",
+        10
+      ],
+      [
+        "STE-FLOCKING-NL-0251",
+        10
+      ],
+      [
+        "STE-FIREFLIES-NL-0512",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1219",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-0032",
+        10
+      ],
+      [
+        "STE-GENERAL-NL-1136",
+        10
+      ],
+      [
+        "STE-TRAFFIC-BASIC-NL-0322",
+        10
+      ]
+    ]
+  },
+  "support_pools": {
+    "seed_count": 4507,
+    "avg_pool_size": 12.0
+  }
+}
