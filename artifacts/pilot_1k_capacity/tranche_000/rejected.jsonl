@@ -1,0 +1,189 @@
+{"task_key": "12510fa8a022d1cfb6dbedfb9c42fff2b2d60742", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "8838f5bdc11032ae27d519f373fc7724d04f7e6f", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "82bc2b4b086784ca46a7d769939e28a5bda6bdf6", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "8e62c88bf7e8d2aa799eb44d4ba89ccf69d95c77", "model_name": "rebellion", "reason": "EXTENSION_REQUIRES_FRAMING", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "ce0399b081b35c9b4048ca7b788b78fe8d549957", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "e0c06f999c6e2c125f4f8d867a0299c163e10aea", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "36e7ba7f44fdcb3d8cd5987e4474f3d3d51e141c", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "826a17bf66a1c58e223a8cf2197fe9d33bc2c18d", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "846b75aa17e6b13cbede763b29858ee1781fc186", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "d38ef2e9f07e2f5f306d8d5060858c681140d644", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "bec180b06103ec8ac7901df17ffbb85684e34354", "model_name": "rebellion", "reason": "EXTENSION_REQUIRES_FRAMING", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "a2ed3a93f3e7a3d50f689ce5bbc50e9194e52254", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "f9116131f0d9754e2a26d4fd47b800252fad3259", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "a3af6e61793f8a08dfb51cdf671ee11b5efd820c", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "bde2090fd2600afbf144a8ebd681154a4a6b0869", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "c4f4826a59f90bb202fc076c4582a8b4f4b26a69", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "d944d0e1d0f4c51e0817fd852e245a67d3f77ba4", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "0ce1119a4af44eda47a5fff1f87dda523a69a39b", "model_name": "virus", "reason": "NO_RESPONSE", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "e81c1a21fa395e973c276dcf60e50e3665ee15e5", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "acc618294f79a5509017ddddd43912e75cbbca44", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "8cf4a5dadc2a3a2b8649420d68ac13736ac4f318", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "2d7a9c8e47265d53e8159dbe3266090b8ba9a487", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "fd54497070f395cb58238dd19219a399f0c14ef9", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "79a7f55fe5291f1d11cc677616290afdab9cf27c", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "1e9b86930f466ce01d9f42c9967f9c398d08151e", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "5406778e039c8466cb03bcc4d707478f4bde9d55", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "c5c9d11c655b32d0cc2d2bb08ea597a8fdd47e86", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "03e6a77a8df0f8066a4e4b6e39444e0951578c2d", "model_name": "virus", "reason": "UNKNOWN_CORE_IDENTIFIER", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "3647cebfa6f25dea690bcabe8f148c74abf52212", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "47c0bd4fa84b9e2fc005b9f4b5bdeaf9714a7b92", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "9547bb256da5d2da579f1123f1e654cf16244fd7", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "869d99060a3b676edf49475f810893aa2b1d762b", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "e57b8b58cc38d07e8f4cb45658e683cbcfbde47f", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "23056f2ead323cc68b3e474508435480a5fd0aad", "model_name": "virus", "reason": "NO_RESPONSE", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "69532f1559ec2282de94039b2a09aca643115aa3", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "db924b9318a095ec52e25825bac70b0e5a74a628", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "cf6957604f4cb93da3db969a7e1818f59437ec40", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "dd354b49d934d5668fbfd026ee310fb76bfe5f7e", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "9b74d5231f884bfcd09e399daf50ffc6a482dc02", "model_name": "virus", "reason": "UNKNOWN_CORE_IDENTIFIER", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "bcd7806349fffec40a196c97c5769dfdd7c33834", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "15f51a57b1811b3fa402db92cb5900ff84d49979", "model_name": "virus", "reason": "NO_RESPONSE", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "41a3a8053097267ec792ce77d09ad9987b87cb5b", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "708daa294a0bae1c4d551d5e3b364ef4d6b16273", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "b07e210e5e7ee3595585bb915cbcb6e46c2e9344", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "edd23d2b63c846d72cb92395c469e947841c414f", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "6da83488982814ba95b648751268e3c0b2e2ebef", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "0cd4800b58fd9184bd68aa3c1348935a077b73cb", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "6e8270f0d84aa46025bbde445f02c17a1e930213", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "e2c7d664368b6f5f90ea5c4060da44b66c590830", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "2d12cc2f418eeb0932a13e67423233f677e1fe30", "model_name": "virus", "reason": "NO_RESPONSE", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "5cd5f91362218021962121a6354bc0b7cbfbd6c8", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "19af4fe39493ca0ea9b9944483dc99a0b005b460", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "1ae00dcfd9c03a46a1a254f11b07971dbdad47e6", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "a6b789e12d0b07a988f1104e25d221787ff00f1c", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "ab8e48f81435efe75d8715602b6c5f9577e985f3", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "68ea68fa5708629f59f737c07700df46bce53b1e", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "9136a6bec6536d0615f88528e3f079a2d2f45aa8", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "3443335b1a22619a3eea450149ddef5a5e286eea", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "a278a98f2a12291f0e7138f839e4e170a8b4818a", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "b71918639aa6b7ad8dbcd2d3206aa63e34e3099d", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "dfbcdf23a7cb90cd07705d13a66f6e6c5afeb7eb", "model_name": "rebellion", "reason": "EXTENSION_CONTENT_IN_CORE_MODE", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "5a0fd82e513601eaa0c75f52a1e290dc6dbf3ce0", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "875be32a117cc48ab7b20a29ed58bb64d50f6d18", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "78a48f13296de62e9fd85fc9160239c3dbea7e4c", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "d6ee070eba6c5bd83774db8e70506aa3225f3bab", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "cf5351efc83698e22a1725a5181ba153d8eb79f3", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "d87ec2ebfb21d18e24706ccf16c85274501d6110", "model_name": "rebellion", "reason": "EXTENSION_REQUIRES_FRAMING", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "1dc0f5ee8ae95b50390bc039d0328167f186d62e", "model_name": "rebellion", "reason": "EXTENSION_REQUIRES_FRAMING", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "a95f4417ac65eab29e6514024c28637d5a22dae3", "model_name": "rebellion", "reason": "BASE_MODEL_MISREPRESENTATION", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "a95f4417ac65eab29e6514024c28637d5a22dae3", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "dcc03100dd481dcd3173206dc37930e04b12a1c0", "model_name": "rebellion", "reason": "UNAPPROVED_EXTENSION_IDENTIFIER", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "29627ef74111b661a068fe99fcefdf9c8c595902", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "5939329a00ec69161e70b3cb996e7de886ed46bb", "model_name": "rebellion", "reason": "EXTENSION_REQUIRES_FRAMING", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "e3cca9c57fedaff06f76c1fabaecb56671fede82", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "04499bf6a52b8eacafc7b8f72043120d64f43aa2", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "21b10502a2c3640f74733b019a63bc6c7b0f9564", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "5dd5d7f21df34c28ca56f477a5d9add354172c70", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "ab389bcd0dfbc993f47927d29e01518120ad5ec8", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "40143b430815e64715923d3996836bea689593e3", "model_name": "rebellion", "reason": "BASE_MODEL_MISREPRESENTATION", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "d2a16115c8c16bc2786dc4318a4db485c4ffbb4b", "model_name": "rebellion", "reason": "EXTENSION_REQUIRES_FRAMING", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "cc28f3992abd72706e0ea055153a6acd28b377c7", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "8ce34db3d8e02d1d5ee9f439deb267e3a0f3353a", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "547dc6a0da8727918adc2ee03621182d8613d3ee", "model_name": "rebellion", "reason": "UNAPPROVED_EXTENSION_IDENTIFIER", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "547dc6a0da8727918adc2ee03621182d8613d3ee", "model_name": "rebellion", "reason": "UNAPPROVED_EXTENSION_IDENTIFIER", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "ec2119bd15fa45137a566a516fd825d3f918f30f", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "ec2119bd15fa45137a566a516fd825d3f918f30f", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "49284ddde9f81ec9e74518f6133673c5f1cf0bbf", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "beb0057b68962164174db95bdd485c210f13c5f0", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "beb0057b68962164174db95bdd485c210f13c5f0", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "04be801fc2e46548705fca40e31f554aae717459", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "04be801fc2e46548705fca40e31f554aae717459", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "46558f32811ba4f6009be9ab5d1d57583ff1021c", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "237dd9c96fdab82f9d1e57da2b875d4e0993718f", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "237dd9c96fdab82f9d1e57da2b875d4e0993718f", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "a0cf7a01e68f64d1d93ed03797ce6557125f368f", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "d2e54c2fe41dbe8017996c2ef65f8a5707da7357", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "18869b31edcf08444b768c2efaa5f4ac4cc30ad7", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "c19597e3e27eb8aef7402db22577903ab76649aa", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "3a01dcdc15441300cd93739d66ea245e6c7c24e5", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "3ad541f2d8f9caf6e3676d89aee023671e63e80c", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "3ad541f2d8f9caf6e3676d89aee023671e63e80c", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "d366f1a1af9a6afa071a456d182e307e947dc509", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "d366f1a1af9a6afa071a456d182e307e947dc509", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "194ff36a81c187940b2d0bd7230751967a16aa06", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "f0e43686e304ca9bd5570a2c48264d4dbbeed06c", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "f0e43686e304ca9bd5570a2c48264d4dbbeed06c", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "76cfc5cc36843189a13075c5af9b7e21fc2a3f42", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "76cfc5cc36843189a13075c5af9b7e21fc2a3f42", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "a8c75b7b098634a0f85b4b12eff0401bf081e2db", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "a8c75b7b098634a0f85b4b12eff0401bf081e2db", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "edeeb50ccd7cfc705982c4dc7a3040a314747c95", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "65e59c5835c9db94e62909851f73eda6e4cf9c59", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "7c8ad8efbda0a59d175ef16e7c683d8134da08fe", "model_name": "virus", "reason": "UNKNOWN_CORE_IDENTIFIER", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "179f1510d19e01cfc7446bedda4c33cdbd1a157a", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "179f1510d19e01cfc7446bedda4c33cdbd1a157a", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "6652a78bbf518ef7ed67b73f96466f58e6750a6a", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "6652a78bbf518ef7ed67b73f96466f58e6750a6a", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "4d452354c51db9ef9d2398cf9de6a33512e799ac", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "70d2809bdf98fd43478877669d3394628b2710f2", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "70d2809bdf98fd43478877669d3394628b2710f2", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "5b0ea80f0c13a0a32f9e2bb7716859d5f033fc99", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "5b0ea80f0c13a0a32f9e2bb7716859d5f033fc99", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "a9accc3fa02ddbc53308bfc90051bb5f8b02d395", "model_name": "virus", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "49d4eb74dc19ef7e511009d383808eaca1616df8", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "6b2f84b938a611a998d11586c5f6cbfb809b10d6", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "6b2f84b938a611a998d11586c5f6cbfb809b10d6", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "6ecf93255e507589a3d2e59b9de484bea3e7c7bf", "model_name": "virus", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "02844518127ef647f17d98853c04aa629b135a0f", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "02844518127ef647f17d98853c04aa629b135a0f", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "de7257dfc31a61e5d117fbe14e1a692a45fdc4f7", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "de7257dfc31a61e5d117fbe14e1a692a45fdc4f7", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "378f1903baecc957f5e8d2093063be4398d868a2", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "6ae976e49b1370c2e1fd09ef47ffc7dfa721a544", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "08a39f5799ad9dec81acd2afe50197f54f593aca", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "08a39f5799ad9dec81acd2afe50197f54f593aca", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "31da19ba0ac29f31d5957f3c4de37c62d85bdad6", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "31da19ba0ac29f31d5957f3c4de37c62d85bdad6", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "47da7c0f7ab5e06a1684e513a8c8eb35bd6c6afa", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "a8670723fccfa4c3ca61cb1aada94c010bc2809b", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "a92c0468fd30c6eed44d888f4a21e9916c844ad8", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "e17d66d97fab87d58afdfcf2f225c43d55427d22", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "5d709af402fd14acd93285cdb645acafb97a6134", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "401dabcf8d5933a55c0fcf4ccfe407617e8795bf", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "c83eb21a52ca1160d46d36217101ede35917f9e4", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "4d846938ddab5d4f318a330c3896d207aff9c581", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "db0ed01e902cc5025f1c51ddc56c059f359477f8", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "b66c8180f6dbd0b138e3df62b955ae2929eb99af", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "dc40c18086666bde4fa253fa95456747cb813fe1", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "4f10a3ba356fb05fa666fefec1211a0e2816e2cd", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "cb5f198eb58f769b88ddbcc2a7c99871190763c7", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "30cbc3f7e5240f7a500f683c1eeb68b2fe7a3b97", "model_name": "segregation", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "75b11b1df6cca59bb348bc9526f2627dff5192f6", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "f8e2eb825d43ae277c352db5168f7cb577bc8234", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "eeb98f85aab29c3b30de44775c79f0962486076f", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "7514a1c2587379ba50e4ab7d8a6a2f40c3272cfc", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "9fc9dd3c41a726e3e75be9b351948381d01a8e95", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "6982ace288d2fbfea1421f66407311180b62cd15", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "fb42d9a4d916718ca7f715cd7941ef7f254d09fa", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "5d745710473ed847c2d2f7eb9de87d687f46e91f", "model_name": "segregation", "reason": "UNKNOWN_CORE_IDENTIFIER", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "8e479144789a526efcab744d0b6a530911e53b28", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "cc9f6247b61743f4c833303e09c81a2105355f88", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "9b3d4d19e403e8e1963ea94ceaeec4794f7dc3f4", "model_name": "segregation", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "8411cc198063bcef7538dd490f52c7143725c5cc", "model_name": "segregation", "reason": "BAD_JSON", "provider": "grok-4-1-fast-reasoning", "error": "model_returned_skip:SEED_CONFLICT"}
+{"task_key": "e5bf1a1e068ec0e22e142862f593204f14b8df38", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "e9bd4a28e28ebb3f54e8ade41733f2d8dcbcccc3", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "39ff02472b8912bc1cb4848ce925eb7827a840f3", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "c8312f1f48fe687430675bfa2de912435f24656c", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "6808346b38488a3a0e708f49006fac2f0318dc2b", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "bcbacaae40970c4a0b0602ce52f05928b8a1cb9f", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "d359aac0cab1d8f534b8d15d7b522d214d100cfe", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "2ec1a4c6fafaf33d5d590c2d85487c4014d6b741", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "795c53fcceca19d85a3498688efc3859560ad3a9", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "c2a4030e8dd9d6b8c370c04962305bed0c9f80cd", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "0be8e362416c1119545f82c013ea6806889e28b4", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "6d8267910d6b5f0f28964e134bccb85ad75294e6", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "8642145128170c956b094c4919a42fd7644ed1cb", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "56fd1f1c8daf7e311493e238277b3b6316f24eaa", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "9db5f93a1a97284520ee515c817566e22879a264", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "2f0c6beda4d20749fcfa71a8e4592d3cbbab8c68", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "f2686ee467ae6c7d91fb17cc3d0d793e523b0c8b", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "30a808c96ff6d7d61e987809802e7ffd2089f466", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "638ec1f0cc439fc1b1f17344a3b4e7ea479d3735", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "f357a703bc5b7baf390785b8a32f60d58211715d", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "3ace61f1b0a60690ee2d3dccfca825b65b50af03", "model_name": "segregation", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "b2846df4c14ebf11c98622dcaf0c4779dd3ae1b6", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "623e60e9dc84e05756a0a2cab24ad7becf56bb86", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "9a6a3bc76a4320d94a57a7ee7a2464ed131829e5", "model_name": "rebellion", "reason": "UNAPPROVED_EXTENSION_IDENTIFIER", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "1e12dca639a9d76f13338a1eb59087f4e3955837", "model_name": "rebellion", "reason": "QUESTION_TEMPLATE_DUP", "provider": "grok-4-1-fast-reasoning"}
+{"task_key": "be15512f6a17a7669e113ad37f4512e9d9b4b7a3", "model_name": "rebellion", "reason": "EXTENSION_REQUIRES_FRAMING", "provider": "grok-4-1-fast-reasoning"}

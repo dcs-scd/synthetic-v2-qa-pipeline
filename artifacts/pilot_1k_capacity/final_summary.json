@@ -1,0 +1,68 @@
+{
+  "total_accepted": 311,
+  "total_rejected": 189,
+  "target_total": 1000,
+  "tranches_completed": 1,
+  "stop_reason": "BAD_JSON_RATE=31/500=6.20%",
+  "tranche_summaries": [
+    {
+      "total_events": 500,
+      "by_status": {
+        "accepted": 311,
+        "rejected": 189
+      },
+      "by_reason": {
+        "QUESTION_TEMPLATE_DUP": 136,
+        "EXTENSION_REQUIRES_FRAMING": 7,
+        "BAD_JSON": 31,
+        "NO_RESPONSE": 4,
+        "UNKNOWN_CORE_IDENTIFIER": 4,
+        "EXTENSION_CONTENT_IN_CORE_MODE": 1,
+        "BASE_MODEL_MISREPRESENTATION": 2,
+        "UNAPPROVED_EXTENSION_IDENTIFIER": 4
+      },
+      "by_model_status": {
+        "rebellion": {
+          "accepted": 186,
+          "rejected": 61
+        },
+        "virus": {
+          "accepted": 79,
+          "rejected": 87
+        },
+        "segregation": {
+          "accepted": 46,
+          "rejected": 41
+        }
+      },
+      "by_model_reason": {
+        "rebellion": {
+          "QUESTION_TEMPLATE_DUP": 47,
+          "EXTENSION_REQUIRES_FRAMING": 7,
+          "EXTENSION_CONTENT_IN_CORE_MODE": 1,
+          "BASE_MODEL_MISREPRESENTATION": 2,
+          "UNAPPROVED_EXTENSION_IDENTIFIER": 4
+        },
+        "virus": {
+          "QUESTION_TEMPLATE_DUP": 52,
+          "BAD_JSON": 28,
+          "NO_RESPONSE": 4,
+          "UNKNOWN_CORE_IDENTIFIER": 3
+        },
+        "segregation": {
+          "QUESTION_TEMPLATE_DUP": 37,
+          "BAD_JSON": 3,
+          "UNKNOWN_CORE_IDENTIFIER": 1
+        }
+      },
+      "tranche_num": 0,
+      "tranche_dir": "artifacts/pilot_1k_capacity/tranche_000",
+      "task_count": 500,
+      "batch_meta": {
+        "grok_batch_id": "batch_2a0d7751-e3c7-4c48-ac47-308466244931",
+        "grok_count": 500
+      },
+      "elapsed_seconds": 470.2
+    }
+  ]
+}
