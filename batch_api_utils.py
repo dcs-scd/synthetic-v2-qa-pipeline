@@ -12,12 +12,48 @@ from typing import List, Dict, Any, Tuple, Optional
 from pathlib import Path
 
 # Configuration constants
-OPENAI_BATCH_CHUNK_SIZE = 1000
+OPENAI_BATCH_CHUNK_SIZE = 500
 DEFAULT_POLL_INTERVAL = 15  # seconds
 DEFAULT_TIMEOUT = 7200  # 2 hours
 DEFAULT_STALL_TIMEOUT = 300  # 5 minutes
 
 logger = logging.getLogger(__name__)
+
+
+class _CurlFileResponse:
+    """Minimal wrapper to match openai FileObject interface."""
+    def __init__(self, file_id: str):
+        self.id = file_id
+
+
+def _upload_file_via_curl(file_path: str, api_key: str, purpose: str = "batch", max_retries: int = 5) -> _CurlFileResponse:
+    """Upload a file to OpenAI via curl (bypasses httpx SSL issues)."""
+    import subprocess
+    for attempt in range(max_retries):
+        try:
+            result = subprocess.run([
+                "curl", "-s", "-X", "POST", "https://api.openai.com/v1/files",
+                "-H", f"Authorization: Bearer {api_key}",
+                "-F", f"purpose={purpose}",
+                "-F", f"file=@{file_path}",
+            ], capture_output=True, text=True, timeout=120)
+            if result.returncode != 0:
+                raise RuntimeError(f"curl exit {result.returncode}: {result.stderr or result.stdout}")
+            if not result.stdout.strip():
+                raise RuntimeError("curl returned empty response")
+            resp = json.loads(result.stdout)
+            if "error" in resp:
+                raise RuntimeError(f"API error: {resp['error']}")
+            file_id = resp["id"]
+            logger.info(f"Uploaded via curl: {file_id}")
+            return _CurlFileResponse(file_id)
+        except Exception as e:
+            if attempt < max_retries - 1:
+                delay = 2 ** (attempt + 1)
+                logger.warning(f"curl upload attempt {attempt+1} failed, retrying in {delay}s: {e}")
+                time.sleep(delay)
+            else:
+                raise
 
 
 def build_openai_batch_request(
@@ -126,11 +162,15 @@ def submit_openai_batch_chunked(
         chunk_file = temp_path / f"batch_chunk_{i:03d}.jsonl"
         write_batch_input_file(chunk, str(chunk_file))
 
-        # Upload file
-        with open(chunk_file, 'rb') as f:
-            batch_input_file = client.files.create(
-                file=f,
-                purpose="batch"
+        # Upload file — try httpx first, fall back to curl on SSL errors
+        batch_input_file = None
+        try:
+            with open(chunk_file, 'rb') as f:
+                batch_input_file = client.files.create(file=f, purpose="batch")
+        except Exception as e:
+            logger.warning(f"httpx upload failed ({e}), falling back to curl")
+            batch_input_file = _upload_file_via_curl(
+                str(chunk_file), client.api_key, purpose="batch"
             )
 
         # Create batch
