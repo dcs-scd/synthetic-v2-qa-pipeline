@@ -142,6 +142,34 @@ def safe_text(x: Any) -> str:
     return "" if x is None else str(x)
 
 
+# ── Model capacity helpers (optional capacity-aware planning) ─────
+
+def load_model_capacity_report(path: Optional[str]) -> Dict[str, Any]:
+    if not path:
+        return {"models": {}}
+    return load_json(path)
+
+
+def get_model_capacity_entry(model_capacity_report: Dict[str, Any], model_name: str) -> Dict[str, Any]:
+    return model_capacity_report.get("models", {}).get(model_name, {})
+
+
+def get_model_bucket(model_capacity_report: Dict[str, Any], model_name: str, fallback_bucket: str) -> str:
+    row = get_model_capacity_entry(model_capacity_report, model_name)
+    return row.get("capacity_bucket", fallback_bucket)
+
+
+def get_model_seed_cap(model_capacity_report: Dict[str, Any], model_name: str, route_mode: str, fallback_cap: int) -> int:
+    row = get_model_capacity_entry(model_capacity_report, model_name)
+    caps = row.get("suggested_seed_caps", {})
+    return int(caps.get(route_mode, fallback_cap))
+
+
+def get_model_effective_capacity(model_capacity_report: Dict[str, Any], model_name: str) -> float:
+    row = get_model_capacity_entry(model_capacity_report, model_name)
+    return float(row.get("effective_capacity", 1.0))
+
+
 def build_record_indexes(records: List[Dict[str, Any]], allowed_sources: List[str]) -> Dict[str, Any]:
     filtered = [r for r in records if r.get("source") in allowed_sources]
 
@@ -352,7 +380,8 @@ def compute_priority(
     seed_row: Dict[str, Any],
     support_entry: Dict[str, Any],
     provider_hint: str,
-    cfg: Dict[str, Any]
+    cfg: Dict[str, Any],
+    model_capacity_report: Optional[Dict[str, Any]] = None,
 ) -> float:
     priority_cfg = cfg["priority"]
 
@@ -375,6 +404,11 @@ def compute_priority(
 
     if support_entry.get("relation") == "seed_only":
         pr -= priority_cfg["seed_only_penalty"]
+
+    # Model capacity weighting — richer models float up
+    if model_capacity_report:
+        model_name = normalize_model_name(seed_row.get("model_name"))
+        pr *= get_model_effective_capacity(model_capacity_report, model_name)
 
     # tiny deterministic jitter to break ties stably
     jitter_key = "|".join([
@@ -411,7 +445,8 @@ def enumerate_tasks_for_seed(
     seed_row: Dict[str, Any],
     support_pool: List[Dict[str, Any]],
     model_bucket: str,
-    cfg: Dict[str, Any]
+    cfg: Dict[str, Any],
+    model_capacity_report: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     route_mode = seed_row.get("route_mode")
     if route_mode == "skip":
@@ -421,7 +456,9 @@ def enumerate_tasks_for_seed(
     if not transforms:
         return []
 
-    cap = cfg["caps"]["max_tasks_per_seed_by_mode"].get(route_mode, 4)
+    fallback_cap = cfg["caps"]["max_tasks_per_seed_by_mode"].get(route_mode, 4)
+    model_name_norm = normalize_model_name(seed_row.get("model_name"))
+    cap = get_model_seed_cap(model_capacity_report or {}, model_name_norm, route_mode, fallback_cap)
     max_supports = cfg["support"]["max_supports_per_seed_by_mode"].get(route_mode, 3)
 
     supports = support_pool[:max_supports]
@@ -464,7 +501,7 @@ def enumerate_tasks_for_seed(
             continue
         seen.add(task_key)
 
-        priority = compute_priority(seed_row, support_entry, provider_hint, cfg)
+        priority = compute_priority(seed_row, support_entry, provider_hint, cfg, model_capacity_report=model_capacity_report)
 
         task = {
             "task_key": task_key,
@@ -497,17 +534,19 @@ def enumerate_tasks_for_seed(
 def enumerate_all_tasks(
     routed_seeds: List[Dict[str, Any]],
     support_pools: Dict[str, List[Dict[str, Any]]],
-    cfg: Dict[str, Any]
+    cfg: Dict[str, Any],
+    model_capacity_report: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
-    model_buckets = compute_model_buckets(routed_seeds, cfg)
+    fallback_buckets = compute_model_buckets(routed_seeds, cfg)
     tasks = []
 
     for seed_row in routed_seeds:
         seed_id = seed_row.get("seed_id")
         model_name = normalize_model_name(seed_row.get("model_name"))
-        model_bucket = model_buckets.get(model_name, cfg["model_bucketing"]["labels"]["long"])
+        fallback_bucket = fallback_buckets.get(model_name, cfg["model_bucketing"]["labels"]["long"])
+        model_bucket = get_model_bucket(model_capacity_report or {}, model_name, fallback_bucket)
         pool = support_pools.get(seed_id, [])
-        tasks.extend(enumerate_tasks_for_seed(seed_row, pool, model_bucket, cfg))
+        tasks.extend(enumerate_tasks_for_seed(seed_row, pool, model_bucket, cfg, model_capacity_report=model_capacity_report))
 
     # Enforce per-support cap
     max_per_support = cfg.get("caps", {}).get("max_tasks_per_support", 60)
@@ -749,14 +788,16 @@ def main():
     parser.add_argument("--out-tasks", required=True, help="Output path for planned_tasks.jsonl")
     parser.add_argument("--summary-out", required=True, help="Output path for planning_summary.json")
     parser.add_argument("--config-json", default=None, help="Optional planner config override JSON")
+    parser.add_argument("--model-capacity-report", default=None, help="Optional model_capacity_report.json for capacity-aware planning")
     args = parser.parse_args()
 
     cfg = load_planner_config(args.config_json)
+    mcr = load_model_capacity_report(args.model_capacity_report)
     routed_seeds = load_jsonl(args.routed_seeds)
     records = load_jsonl(args.records)
 
     support_pools = build_support_pools(routed_seeds, records, cfg)
-    all_tasks = enumerate_all_tasks(routed_seeds, support_pools, cfg)
+    all_tasks = enumerate_all_tasks(routed_seeds, support_pools, cfg, model_capacity_report=mcr)
     selected_tasks = select_tasks_for_target(all_tasks, cfg)
 
     save_json(support_pools, args.out_support_pools)
@@ -764,6 +805,7 @@ def main():
 
     summary = {
         "config": cfg,
+        "model_capacity_report_used": bool(args.model_capacity_report),
         "support_pools": summarize_support_pools(support_pools),
         "all_tasks": summarize_tasks(all_tasks),
         "selected_tasks": summarize_tasks(selected_tasks),

@@ -78,7 +78,7 @@ def test_build_request():
     assert body["model"] == "gpt-5.4-nano"
     assert body["messages"] == [{"role": "user", "content": "Hello"}]
     assert body["temperature"] == 0.7  # default
-    assert body["max_tokens"] == 2048  # default
+    assert body["max_completion_tokens"] == 2048  # default
 
 
 def test_build_request_custom_params():
@@ -97,7 +97,7 @@ def test_build_request_custom_params():
     assert body["model"] == "gpt-4"
     assert body["messages"][0]["content"] == "What is 2+2?"
     assert body["temperature"] == 0.1
-    assert body["max_tokens"] == 100
+    assert body["max_completion_tokens"] == 100
 
 
 def test_write_file(tmp_path):
