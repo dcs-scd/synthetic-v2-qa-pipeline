@@ -71,3 +71,27 @@ class TestSkip:
             profile=REBELLION_PROFILE,
         )
         assert result["route"] == "skip"
+
+
+def test_network_topology_not_skipped():
+    from qa_system_v2bis.synthetic_v2.routing import route_seed
+    q = "How does the network topology affect message propagation?"
+    a = "The network structure determines communication patterns."
+    profile = {
+        "core": {"procedures": ["setup", "go"], "variables": ["links"], "breeds": ["turtles"], "widgets": [], "model_summary": "Agent model"},
+        "extensions": {"families": [{"name": "network_layer", "concepts": ["network", "topology"], "identifiers": ["network-topology"], "rules": []}], "general_rules": [], "framing_cues": ["extend"], "disallowed_unanchored_themes": []}
+    }
+    result = route_seed(q, a, profile)
+    assert result["route"] != "skip", f"Network seed should not skip: {result.get('route_reason', '')}"
+
+
+def test_relaxed_anchor():
+    from qa_system_v2bis.synthetic_v2.routing import route_seed
+    q = "How do turtles move forward?"
+    a = "Turtles use the go procedure to advance."
+    profile = {
+        "core": {"procedures": ["setup", "go"], "variables": ["speed"], "breeds": ["turtles"], "widgets": [], "model_summary": "Movement model"},
+        "extensions": {"families": [], "general_rules": [], "framing_cues": [], "disallowed_unanchored_themes": []}
+    }
+    result = route_seed(q, a, profile)
+    assert result["route"] in ("core_paraphrase", "core_repair"), f"Should route with core hits: {result.get('route_reason')}"

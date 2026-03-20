@@ -1,4 +1,5 @@
 import argparse
+import re
 from collections import Counter, defaultdict
 from typing import Dict, List, Any, Set, Tuple, Optional
 
@@ -158,6 +159,48 @@ def choose_best_family(text: str, profile: Dict[str, Any], config: Dict[str, Any
     }
 
 
+# Scope mismatch: detect when a seed asks about structural features
+# the model fundamentally lacks
+_SCOPE_MISMATCH_RULES = [
+    # (seed_pattern, model_lacks_pattern, reason)
+    # Hexagonal / non-square grids
+    (re.compile(r"\bhex(?:agonal)?\s+grid\b", re.I),
+     lambda _: True,  # no NetLogo model uses hex grids natively
+     "seed_requires_hex_grid"),
+    # Multi-pathogen / multi-strain in single-pathogen models
+    (re.compile(r"\b(?:multiple\s+pathogen|multi.?pathogen|coevolut|multiple\s+strain|multi.?strain)\b", re.I),
+     lambda p: "sick?" not in " ".join(p.get("core", {}).get("variables", [])).lower() and "infected" not in " ".join(p.get("core", {}).get("variables", [])).lower(),
+     "seed_requires_multi_pathogen"),
+    # Wrong model name (e.g., Traffic Grid question sent to Traffic Basic)
+    (re.compile(r"\btraffic\s+grid\b", re.I),
+     lambda p: p.get("model_name", "") == "traffic_basic",
+     "seed_targets_wrong_model"),
+]
+
+
+# Strong modification intent: seed explicitly proposes adding/extending/modifying
+_STRONG_MODIFICATION_RE = re.compile(
+    r"\b(?:how\s+(?:can|do|would|should)\s+I\s+(?:add|implement|introduce|include|incorporate|extend|modify|model))"
+    r"|\b(?:add(?:ing)?\s+(?:a\s+)?(?:new\s+)?(?:\w+\s+)?(?:to|into)\s+(?:the|a|my))"
+    r"|\b(?:implement(?:ing)?|introduc(?:e|ing)|incorporat(?:e|ing))\s+\w+"
+    r"|\b(?:extend(?:ing)?)\s+(?:the\s+)?(?:original\s+)?(?:\w+\s+)?model",
+    re.IGNORECASE
+)
+
+
+def _has_strong_modification_intent(text: str) -> bool:
+    """Check if the seed explicitly proposes adding/modifying/extending the model."""
+    return bool(_STRONG_MODIFICATION_RE.search(text))
+
+
+def _check_scope_mismatch(text: str, profile: Dict[str, Any]) -> Optional[str]:
+    """Return mismatch reason if seed is structurally incompatible, else None."""
+    for pattern, lacks_check, reason in _SCOPE_MISMATCH_RULES:
+        if pattern.search(text) and lacks_check(profile):
+            return reason
+    return None
+
+
 def route_seed(
     seed_q: str,
     seed_a: str,
@@ -172,6 +215,39 @@ def route_seed(
 
     core_ids = core_identifier_set(profile)
     ext_ids = all_extension_identifiers(profile)
+
+    # Check for network topology seeds and try to route to network_layer extension first
+    network_topology_pattern = re.compile(r"\b(?:network|graph|preferential.attachment|scale.free|small.world|random.network|degree.distribution|topology)\b", re.I)
+    has_network_topology = bool(network_topology_pattern.search(text))
+    network_layer_family = None
+
+    if has_network_topology:
+        # Check if profile has network_layer extension family
+        for fam in profile.get("extensions", {}).get("families", []):
+            if fam.get("name") == "network_layer":
+                network_layer_family = fam
+                break
+
+    # Scope mismatch pre-filter: skip structurally impossible seeds
+    scope_mismatch = _check_scope_mismatch(text, profile)
+    if scope_mismatch:
+        return {
+            "route": "skip",
+            "family": None,
+            "route_reason": f"scope_mismatch:{scope_mismatch}",
+            "core_hits": [],
+            "summary_overlap": [],
+            "extension_identifier_hits": [],
+            "extension_concept_hits": [],
+            "best_family_score": 0,
+            "family_scores": {},
+            "family_matches": {},
+            "extension_intent": False,
+            "extension_intent_hits": [],
+            "unknown_terms_sample": [],
+            "unknown_ratio": 1.0,
+        }
+
     ext_concepts = all_extension_concepts(profile)
     summary_kw = summary_keywords(profile.get("core", {}).get("model_summary", ""))
 
@@ -235,10 +311,31 @@ def route_seed(
         route = "anchored_extension"
         route_reason = "mixed_core_extension_content"
 
-    # 5. Weak but nonzero core evidence only
+    # 5. Special handling for network topology seeds with network_layer extension
+    elif has_network_topology and network_layer_family:
+        route = "anchored_extension"
+        route_reason = "network_topology_routed_to_network_layer"
+        best_family = "network_layer"
+
+    # 6. Weak core anchor with strong modification intent — route as freeform extension
+    #    (seed explicitly proposes adding/modifying something in the model)
+    elif (
+        (len(core_hits) >= 1 or len(summary_overlap) >= 2)
+        and unknown_ratio > config["core_repair_max_unknown_ratio"]
+        and _has_strong_modification_intent(text)
+    ):
+        route = "freeform_extension"
+        route_reason = "extension_intent_with_weak_core_anchor"
+
+    # 7. Weak but nonzero core evidence only
     elif len(core_hits) >= 1 or len(summary_overlap) >= 2:
         route = "core_repair"
         route_reason = "weak_core_anchor"
+
+    # 8. Relaxed anchor: at least 1 core hit with reasonable unknown ratio
+    elif len(core_hits) >= 1 and unknown_ratio < 0.50:
+        route = "core_repair"
+        route_reason = "relaxed_anchor_threshold"
 
     else:
         route = "skip"
