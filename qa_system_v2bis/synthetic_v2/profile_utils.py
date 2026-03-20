@@ -1,5 +1,6 @@
 """Shared profile-querying utilities used by routing, validation, audit, and prompts."""
 
+import re
 from typing import Any, Dict, List, Optional, Set
 
 from .text_utils import norm_lower, BACKTICK_RE, IDLIKE_RE, STOPWORDS
@@ -67,8 +68,27 @@ def summary_keywords(summary: str) -> Set[str]:
     return out
 
 
+_SINGLE_ID_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_\-]*\??$')
+_FENCED_BLOCK_RE = re.compile(r'```[\s\S]*?```')
+
 def extract_backticked_identifiers(text: str) -> List[str]:
-    return [norm_lower(x) for x in BACKTICK_RE.findall(text or "")]
+    """Extract backticked text that looks like a single NetLogo identifier.
+
+    Filters out:
+    - Fenced code blocks (```...```) before scanning
+    - Multi-word code snippets (e.g., `count sheep`)
+    - Backticked text containing brackets, operators, or other non-identifier chars
+    """
+    # Strip fenced code blocks first to avoid cross-boundary matches
+    cleaned = _FENCED_BLOCK_RE.sub('', text or '')
+    out = []
+    for raw in BACKTICK_RE.findall(cleaned):
+        tok = raw.strip()
+        if not tok:
+            continue
+        if _SINGLE_ID_RE.match(tok):
+            out.append(norm_lower(tok))
+    return out
 
 
 def find_present_phrases(text: str, phrases: Set[str]) -> List[str]:

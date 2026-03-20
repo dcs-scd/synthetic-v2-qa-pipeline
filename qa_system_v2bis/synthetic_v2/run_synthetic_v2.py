@@ -19,6 +19,7 @@ from .gate3_dedup import InMemoryDedupIndex, run_gate3_dedup
 from .telemetry import make_event, record_attempt, summarize_telemetry, TelemetrySummary
 from .text_utils import normalize_model_name
 from .batch_scheduler import QuotaTracker, load_quotas
+from .support_context import build_support_index
 
 
 logger = logging.getLogger(__name__)
@@ -158,6 +159,7 @@ def process_seed(
     model_profiles: Dict[str, Any],
     llm_client,
     embedding_index,
+    support_index=None,
 ) -> Dict[str, Any]:
     route_mode = seed_row.get("route_mode")
     if route_mode == "skip":
@@ -169,7 +171,7 @@ def process_seed(
         return reject_record(seed_row, "MISSING_MODEL_PROFILE", {"model_name": model_name})
 
     try:
-        prompt = build_prompt(seed_row, profile)
+        prompt = build_prompt(seed_row, profile, support_index=support_index)
     except Exception as e:
         return reject_record(seed_row, "PROMPT_BUILD_ERROR", {"error": _safe_error_str(e)})
 
@@ -234,6 +236,7 @@ def generate_synthetic(
     accepted_path: str,
     rejected_path: str,
     telemetry_path: Optional[str] = None,
+    support_index=None,
     near_dup_threshold: float = 0.985,
     limit: Optional[int] = None,
     max_workers: int = 8,
@@ -263,6 +266,7 @@ def generate_synthetic(
             model_profiles=model_profiles,
             llm_client=llm_client,
             embedding_index=embedding_index,
+            support_index=support_index,
         )
         return seed_row, result
 
@@ -402,6 +406,7 @@ def main():
     parser.add_argument("--max-workers", type=int, default=8, help="Max concurrent LLM calls")
 
     parser.add_argument("--quotas", default=None, help="Optional quota config JSON path")
+    parser.add_argument("--records-jsonl", default=None, help="Optional all_records.jsonl for support exemplar lookup")
 
     # smoke-test adapters
     parser.add_argument("--llm-mode", default="echo_seed", help="echo_seed | static_demo")
@@ -410,6 +415,10 @@ def main():
 
     routed_seeds = load_jsonl(args.routed_seeds)
     model_profiles = load_json(args.profiles)
+
+    support_index = None
+    if args.records_jsonl:
+        support_index = build_support_index(load_jsonl(args.records_jsonl))
 
     llm_client = build_llm_client(args.llm_mode)
     embedding_index = build_embedding_index(args.embedding_mode)
@@ -447,6 +456,7 @@ def main():
         accepted_path=args.accepted,
         rejected_path=args.rejected,
         telemetry_path=args.telemetry,
+        support_index=support_index,
         near_dup_threshold=args.near_dup_threshold,
         limit=args.limit,
         max_workers=args.max_workers,
