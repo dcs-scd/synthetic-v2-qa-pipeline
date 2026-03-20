@@ -1,0 +1,56 @@
+{
+  "total_accepted": 108,
+  "total_rejected": 18,
+  "target_total": 100,
+  "tranches_completed": 2,
+  "stop_reason": null,
+  "tranche_summaries": [
+    {
+      "total_events": 100,
+      "by_status": {
+        "accepted": 87,
+        "rejected": 13
+      },
+      "by_reason": {
+        "UNAPPROVED_EXTENSION_IDENTIFIER": 3,
+        "QUESTION_TEMPLATE_DUP": 7,
+        "BASE_MODEL_MISREPRESENTATION": 2,
+        "EXTENSION_REQUIRES_FRAMING": 1
+      },
+      "tranche_num": 0,
+      "tranche_dir": "artifacts/pilot_dryrun_100/tranche_000",
+      "task_count": 100,
+      "batch_meta": {
+        "nano_batch_ids": [
+          "batch_69bd5a6b705c819088bb4e00edc1632e"
+        ],
+        "nano_count": 54,
+        "grok_batch_id": "batch_3027c50b-3003-4f53-b69f-b638094dec1d",
+        "grok_count": 46
+      },
+      "elapsed_seconds": 177.3
+    },
+    {
+      "total_events": 26,
+      "by_status": {
+        "accepted": 21,
+        "rejected": 5
+      },
+      "by_reason": {
+        "QUESTION_TEMPLATE_DUP": 5
+      },
+      "tranche_num": 1,
+      "tranche_dir": "artifacts/pilot_dryrun_100/tranche_001",
+      "task_count": 26,
+      "batch_meta": {
+        "nano_batch_ids": [
+          "batch_69bd5b1bbee48190b6f52639bbe93cfb"
+        ],
+        "nano_count": 21,
+        "grok_batch_id": "batch_b9fcc4f4-6560-4dab-a7f0-d9847dfdd13b",
+        "grok_count": 5
+      },
+      "elapsed_seconds": 34.0
+    }
+  ]
+}

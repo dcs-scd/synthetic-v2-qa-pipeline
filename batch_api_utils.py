@@ -48,7 +48,7 @@ def build_openai_batch_request(
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
-            "max_tokens": max_tokens
+            "max_completion_tokens": max_tokens
         }
     }
 
@@ -263,6 +263,14 @@ def collect_openai_batch_results(client, batch_id: str) -> Dict[str, str]:
     """
     try:
         batch = client.batches.retrieve(batch_id)
+
+        if batch.error_file_id:
+            try:
+                err_response = client.files.content(batch.error_file_id)
+                err_text = err_response.text if hasattr(err_response, 'text') else err_response.read().decode()
+                logger.error(f"Batch {batch_id} error file (first 500 chars): {err_text[:500]}")
+            except Exception as err_e:
+                logger.error(f"Could not fetch error file: {err_e}")
 
         if not batch.output_file_id:
             logger.error(f"Batch {batch_id} has no output file")

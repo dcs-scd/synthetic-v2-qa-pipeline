@@ -222,55 +222,95 @@ def _poll_and_collect_nano(batch_ids: List[str]) -> Dict[int, str]:
     return results_by_index
 
 
+def _add_grok_with_retry(client, batch_id: str, batch_requests: list, max_retries: int = 3):
+    """Add batch requests with retry on transient gRPC errors."""
+    for attempt in range(max_retries):
+        try:
+            client.batch.add(batch_id=batch_id, batch_requests=batch_requests)
+            return
+        except Exception as e:
+            err = str(e).lower()
+            if attempt < max_retries - 1 and any(s in err for s in ["stream removed", "ssl", "corrupt", "unavailable"]):
+                delay = 2 ** (attempt + 1)
+                logger.warning("Grok add retry %d/%d, sleeping %ds: %s", attempt + 1, max_retries, delay, e)
+                time.sleep(delay)
+            else:
+                raise
+
+
 def _submit_grok_batch(
     prompts_with_indices: List[Tuple[int, str]],
-) -> str:
-    """Submit grok prompts via xAI batch API. Returns batch_id."""
+) -> Tuple[str, Any]:
+    """Submit grok prompts via xAI batch API. Returns (batch_id, client)."""
     from xai_sdk import Client as XAIClient
+    from xai_sdk.chat import user as xai_user
 
     client = XAIClient(api_key=os.environ.get("XAI_KEY") or os.environ.get("XAI_API_KEY"))
+    batch_name = f"pilot_tranche_{int(time.time())}_{len(prompts_with_indices)}"
 
-    batch = client.batch.create()
-    batch_id = batch.id
+    batch = client.batch.create(batch_name=batch_name)
+    batch_id = batch.batch_id
     logger.info("Created Grok batch %s for %d requests", batch_id, len(prompts_with_indices))
 
-    # Add requests in chunks
-    for i in range(0, len(prompts_with_indices), GROK_ADD_CHUNK_SIZE):
-        chunk = prompts_with_indices[i:i + GROK_ADD_CHUNK_SIZE]
-        for idx, prompt in chunk:
-            client.batch.add_request(
-                batch_id=batch_id,
-                batch_request_id=str(idx),
-                model=GROK_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=GROK_TEMPERATURE,
-                max_tokens=GROK_MAX_TOKENS,
-            )
-        time.sleep(0.5)
+    # Build chat requests and add in chunks
+    batch_requests = []
+    for idx, prompt in prompts_with_indices:
+        chat = client.chat.create(
+            model=GROK_MODEL,
+            temperature=GROK_TEMPERATURE,
+            max_tokens=GROK_MAX_TOKENS,
+            response_format="json_object",
+            batch_request_id=str(idx),
+        )
+        chat.append(xai_user(prompt))
+        batch_requests.append(chat)
 
-    client.batch.start(batch_id)
+        if len(batch_requests) >= GROK_ADD_CHUNK_SIZE:
+            _add_grok_with_retry(client, batch_id, batch_requests)
+            logger.info("  Added %d grok requests", len(batch_requests))
+            batch_requests = []
+            time.sleep(1)
+
+    if batch_requests:
+        _add_grok_with_retry(client, batch_id, batch_requests)
+        logger.info("  Added final %d grok requests", len(batch_requests))
+
     logger.info("Started Grok batch %s", batch_id)
-    return batch_id
+    return batch_id, client
 
 
-def _poll_and_collect_grok(batch_id: str) -> Dict[int, str]:
+def _poll_and_collect_grok(batch_id: str, client: Any) -> Dict[int, str]:
     """Poll grok batch and collect results. Returns {original_idx: raw_text}."""
-    from xai_sdk import Client as XAIClient
-
-    client = XAIClient(api_key=os.environ.get("XAI_KEY") or os.environ.get("XAI_API_KEY"))
-
+    STALL_TIMEOUT = 300
     start = time.time()
+    last_done = 0
+    last_progress_time = time.time()
+
     while time.time() - start < BATCH_MAX_WAIT:
-        status = client.batch.get(batch_id)
-        if status.status in ("completed", "failed", "expired"):
+        batch = client.batch.get(batch_id=batch_id)
+        state = batch.state
+        num_success = getattr(state, "num_success", 0) or 0
+        num_failed = getattr(state, "num_failed", 0) or 0
+        num_total = getattr(state, "num_requests", 0) or 0
+        num_done = num_success + num_failed
+
+        logger.info("Grok batch %s: %d/%d done (%d ok, %d fail)",
+                     batch_id, num_done, num_total, num_success, num_failed)
+
+        if num_done >= num_total and num_total > 0:
             break
-        logger.info("Grok batch %s: status=%s", batch_id, status.status)
+
+        if num_done > last_done:
+            last_done = num_done
+            last_progress_time = time.time()
+        elif time.time() - last_progress_time > STALL_TIMEOUT:
+            logger.warning("Grok batch stalled for %ds, proceeding with %d/%d",
+                           STALL_TIMEOUT, num_done, num_total)
+            break
+
         time.sleep(BATCH_POLL_INTERVAL)
 
-    if status.status != "completed":
-        logger.error("Grok batch %s finished with status %s", batch_id, status.status)
-        return {}
-
+    # Collect results
     results = {}
     pt = None
     while True:
@@ -335,29 +375,26 @@ def _gate_results(
         gen_a = data.get("answer", "")
 
         # Gate 2: model validation
-        mn_norm = normalize_model_name(model_name)
-        profile = get_model_profile(profiles, mn_norm)
-        if profile:
-            g2 = validate_generated_row(
-                question=gen_q, answer=gen_a,
-                model_name=mn_norm, profile=profile,
-                route_mode=merged_seed.get("route_mode"),
-                extension_family=merged_seed.get("extension_family"),
-            )
-            if not g2.get("pass"):
-                reason = g2.get("reason", "GATE2_FAIL")
-                by_reason[reason] += 1
-                by_status["rejected"] += 1
-                rejected.append({
-                    "task_key": task_key, "model_name": model_name,
-                    "reason": reason, "provider": provider,
-                })
-                continue
+        generated_row = {"question": gen_q, "answer": gen_a}
+        g2 = validate_generated_row(
+            generated_row=generated_row,
+            routed_seed_row=merged_seed,
+            model_profiles=profiles,
+        )
+        if not g2.get("ok", False):
+            reason = g2.get("reason") or "GATE2_FAIL"
+            by_reason[reason] += 1
+            by_status["rejected"] += 1
+            rejected.append({
+                "task_key": task_key, "model_name": model_name,
+                "reason": reason, "provider": provider,
+            })
+            continue
 
         # Gate 3: dedup
-        g3 = run_gate3_dedup(gen_q, dedup_index)
-        if not g3.get("pass"):
-            reason = g3.get("reason", "NEAR_DUP_QUESTION")
+        g3 = run_gate3_dedup(gen_q, gen_a, dedup_index)
+        if not g3.get("ok", False):
+            reason = g3.get("reason") or "NEAR_DUP_QUESTION"
             by_reason[reason] += 1
             by_status["rejected"] += 1
             rejected.append({
@@ -367,7 +404,7 @@ def _gate_results(
             continue
 
         # Accepted
-        dedup_index.add({"question": gen_q})
+        dedup_index.add({"question": gen_q, "answer": gen_a})
         by_status["accepted"] += 1
         accepted.append({
             "task_key": task_key,
@@ -447,8 +484,9 @@ def run_tranche(
         batch_meta["nano_batch_ids"] = nano_batch_ids
         batch_meta["nano_count"] = len(nano_prompts)
 
+    grok_client = None
     if grok_prompts:
-        grok_batch_id = _submit_grok_batch(grok_prompts)
+        grok_batch_id, grok_client = _submit_grok_batch(grok_prompts)
         batch_meta["grok_batch_id"] = grok_batch_id
         batch_meta["grok_count"] = len(grok_prompts)
 
@@ -458,14 +496,13 @@ def run_tranche(
     # 5. Poll and collect
     if nano_prompts:
         nano_results = _poll_and_collect_nano(nano_batch_ids)
-        # Map back: nano_results keys are req-{idx} indices, need to map to our idx
-        for local_idx, (original_idx, _) in enumerate(nano_prompts):
-            raw = nano_results.get(local_idx)
-            if raw is not None:
-                all_results[original_idx] = raw
+        # nano_results is keyed by the integer parsed from custom_id "req-{original_idx}"
+        # These are already the original task indices, so map directly
+        for original_idx, raw in nano_results.items():
+            all_results[original_idx] = raw
 
     if grok_prompts:
-        grok_results = _poll_and_collect_grok(grok_batch_id)
+        grok_results = _poll_and_collect_grok(grok_batch_id, grok_client)
         for original_idx, raw in grok_results.items():
             all_results[original_idx] = raw
 

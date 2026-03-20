@@ -1,0 +1,24 @@
+{
+  "total_events": 100,
+  "by_status": {
+    "accepted": 87,
+    "rejected": 13
+  },
+  "by_reason": {
+    "UNAPPROVED_EXTENSION_IDENTIFIER": 3,
+    "QUESTION_TEMPLATE_DUP": 7,
+    "BASE_MODEL_MISREPRESENTATION": 2,
+    "EXTENSION_REQUIRES_FRAMING": 1
+  },
+  "tranche_num": 0,
+  "tranche_dir": "artifacts/pilot_dryrun_100/tranche_000",
+  "task_count": 100,
+  "batch_meta": {
+    "nano_batch_ids": [
+      "batch_69bd5a6b705c819088bb4e00edc1632e"
+    ],
+    "nano_count": 54,
+    "grok_batch_id": "batch_3027c50b-3003-4f53-b69f-b638094dec1d",
+    "grok_count": 46
+  }
+}
