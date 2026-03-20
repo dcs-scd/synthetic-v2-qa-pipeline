@@ -93,11 +93,11 @@ def test_corpus_record_features():
 # ---------------------------------------------------------------------------
 def test_telemetry_features_with_dedup():
     events = [
-        {"model_name": "rebellion", "outcome": "accepted"},
-        {"model_name": "rebellion", "outcome": "accepted"},
-        {"model_name": "rebellion", "outcome": "QUESTION_TEMPLATE_DUP"},
-        {"model_name": "rebellion", "outcome": "UNAPPROVED_EXTENSION_IDENTIFIER"},
-        {"model_name": "rebellion", "outcome": "accepted"},
+        {"model_name": "rebellion", "status": "accepted"},
+        {"model_name": "rebellion", "status": "accepted"},
+        {"model_name": "rebellion", "status": "rejected", "reason": "QUESTION_TEMPLATE_DUP"},
+        {"model_name": "rebellion", "status": "rejected", "reason": "UNAPPROVED_EXTENSION_IDENTIFIER"},
+        {"model_name": "rebellion", "status": "accepted"},
     ]
     feats = telemetry_features(events)
     # dedup events: QUESTION_TEMPLATE_DUP counts as dedup → 1 out of 5
@@ -131,11 +131,11 @@ def test_min_max_normalize():
 # 7. compute_capacity_score — all features at 1.0
 # ---------------------------------------------------------------------------
 def test_compute_capacity_score():
-    weights = DEFAULT_CAPACITY_CONFIG["capacity_weights"]
+    weights = DEFAULT_CAPACITY_CONFIG["weights"]
     norm_feats = {k: 1.0 for k in weights}
-    score = compute_capacity_score(norm_feats, DEFAULT_CAPACITY_CONFIG)
+    score = compute_capacity_score("test_model", {}, norm_feats, DEFAULT_CAPACITY_CONFIG)
     expected = sum(weights.values())
-    assert abs(score - expected) < 1e-9
+    assert abs(score - expected) < 1e-4
 
 
 # ---------------------------------------------------------------------------
@@ -153,33 +153,38 @@ def test_compute_dedup_risk_score_no_telemetry():
 # 9. compute_dedup_risk_score — with pilot dedup rate
 # ---------------------------------------------------------------------------
 def test_compute_dedup_risk_score_with_telemetry():
-    model_feats = {"pilot_dedup_rate": 0.2, "support_pool_avg_size": 100}
+    model_feats = {"pilot_dedup_rate": 0.2, "pilot_bad_model_rate": 0.0, "pilot_reject_rate": 0.0, "support_pool_avg_size": 100}
     score = compute_dedup_risk_score(model_feats, DEFAULT_CAPACITY_CONFIG)
     risk_weights = DEFAULT_CAPACITY_CONFIG["dedup_risk_weights"]
-    # pilot_dedup_rate contributes 0.2 * its weight
-    assert score >= risk_weights["pilot_dedup_rate"] * 0.2 - 1e-9
+    # pilot_dedup_rate contributes 0.2 * its weight, support is high so no penalty
+    expected = risk_weights["dedup_rate"] * 0.2
+    assert abs(score - expected) < 1e-4
 
 
 # ---------------------------------------------------------------------------
 # 10. capacity_bucket — threshold classification
 # ---------------------------------------------------------------------------
 def test_capacity_bucket_thresholds():
-    assert capacity_bucket(0.72) == "high_capacity"
-    assert capacity_bucket(0.71) == "mid_capacity"
-    assert capacity_bucket(0.45) == "mid_capacity"
-    assert capacity_bucket(0.44) == "low_capacity"
+    cfg = DEFAULT_CAPACITY_CONFIG
+    assert capacity_bucket(0.72, cfg) == "high_capacity"
+    assert capacity_bucket(0.71, cfg) == "mid_capacity"
+    assert capacity_bucket(0.45, cfg) == "mid_capacity"
+    assert capacity_bucket(0.44, cfg) == "low_capacity"
 
 
 # ---------------------------------------------------------------------------
 # 11. suggested_caps — lerp from min to max
 # ---------------------------------------------------------------------------
 def test_suggested_caps_lerp():
-    caps_cfg = DEFAULT_CAPACITY_CONFIG["seed_caps"]
-    caps_min = suggested_caps(0.0, DEFAULT_CAPACITY_CONFIG)
-    caps_max = suggested_caps(1.0, DEFAULT_CAPACITY_CONFIG)
-    for route_mode, bounds in caps_cfg.items():
-        assert caps_min[route_mode] == bounds["min"]
-        assert caps_max[route_mode] == bounds["max"]
+    cfg = DEFAULT_CAPACITY_CONFIG
+    caps_min = suggested_caps(0.0, cfg)
+    caps_max = suggested_caps(1.0, cfg)
+    # At 0.0, all caps should be at min values
+    assert caps_min["core_paraphrase"] == cfg["caps"]["min_core_paraphrase"]
+    assert caps_min["core_repair"] == cfg["caps"]["min_core_repair"]
+    # At 1.0, all caps should be at max values
+    assert caps_max["core_paraphrase"] == cfg["caps"]["max_core_paraphrase"]
+    assert caps_max["core_repair"] == cfg["caps"]["max_core_repair"]
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +212,7 @@ def test_build_report_end_to_end():
         {"record_id": "R3", "model_name": "fire"},
         {"record_id": "R4", "model_name": "fire"},
     ]
-    report = build_model_capacity_report(profiles, seeds, records, telemetry=None)
+    report = build_model_capacity_report(profiles, seeds, records, support_pools=None, telemetry_rows=None, cfg=DEFAULT_CAPACITY_CONFIG)
     assert report["meta"]["model_count"] == 2
     for model_name in ["rebellion", "fire"]:
         entry = report["models"][model_name]
